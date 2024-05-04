@@ -13,6 +13,14 @@ keywords = ["mongodb", "mongo", "relationships", "reference", "database", "data"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+# We use `pymongo` to communicate with MongoDB servers.
+# Docs: (https://pymongo.readthedocs.io/en/stable/
+pymongo = "^4.7.1"
+# We use `rich` to format console output.
+# Docs: https://rich.readthedocs.io/en/stable/index.html
+rich = "^13.7.1"
+# We use `typer` as a CLI framework.
+# Docs: https://typer.tiangolo.com/
 typer = "^0.12.3"
 
 [tool.poetry.group.dev.dependencies]
