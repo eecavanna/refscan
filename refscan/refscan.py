@@ -16,6 +16,10 @@ console = Console()
 
 @app.command("scan")
 def scan(
+        database_name: Annotated[str, typer.Argument(
+            help="Name of the database.",
+            show_default=False,
+        )],
         mongo_uri: Annotated[str, typer.Option(
             envvar="MONGO_URI",
             help="Connection string for accessing the MongoDB server. If you have Docker installed, "
@@ -23,14 +27,18 @@ def scan(
                  "`$ docker run --rm --detach -p 27017:27017 mongo`",
         )] = "mongodb://localhost:27017",
 ):
-    print("Hello from refscan")
-
     # Connect to MongoDB server.
     mongo_client: MongoClient = MongoClient(host=mongo_uri, directConnection=True)
     with (timeout(5)):  # if any message exchange takes > 5 seconds, this will raise an exception
         (host, port_number) = mongo_client.address
         console.print(f'Connected to MongoDB server: "{host}:{port_number}"')
-        mongo_client.close()
+
+        # Check whether the database exists on the MongoDB server.
+        if database_name not in mongo_client.list_database_names():
+            raise ValueError(f'Database "{database_name}" not found on the MongoDB server.')
+
+    # Close the connection to the MongoDB server.
+    mongo_client.close()
 
 
 if __name__ == "__main__":
