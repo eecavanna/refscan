@@ -4,7 +4,7 @@ from rich.console import Console
 from pymongo import MongoClient, timeout
 
 app = typer.Typer(
-    help="Scan a MongoDB database for referential integrity issues.",
+    help="Scan an NMDC MongoDB database for referential integrity issues.",
     add_completion=False,  # hides the shell completion options from `--help` output
     rich_markup_mode="markdown",  # enables use of Markdown in docstrings and CLI help
 )
@@ -16,10 +16,9 @@ console = Console()
 
 @app.command("scan")
 def scan(
-        database_name: Annotated[str, typer.Argument(
+        database_name: Annotated[str, typer.Option(
             help="Name of the database.",
-            show_default=False,
-        )],
+        )] = "nmdc",
         mongo_uri: Annotated[str, typer.Option(
             envvar="MONGO_URI",
             help="Connection string for accessing the MongoDB server. If you have Docker installed, "

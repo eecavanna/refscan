@@ -3,7 +3,7 @@
 [tool.poetry]
 name = "refscan"
 version = "0.1.0"
-description = "Scans a MongoDB database for referential integrity issues"
+description = "Scans an NMDC MongoDB database for referential integrity issues"
 authors = []
 readme = "README.md"
 repository = "https://github.com/eecavanna/refscan"
@@ -13,6 +13,9 @@ keywords = ["mongodb", "mongo", "relationships", "reference", "database", "data"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+# We use `nmdc-schema` to determine which fields contain foreign keys.
+# Docs: https://microbiomedata.github.io/nmdc-schema/
+nmdc-schema = "^10.2.0"
 # We use `pymongo` to communicate with MongoDB servers.
 # Docs: (https://pymongo.readthedocs.io/en/stable/
 pymongo = "^4.7.1"

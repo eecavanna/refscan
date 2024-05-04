@@ -1,7 +1,7 @@
 # refscan
 
-`refscan` is a command-line tool people can use to scan a static (not changing) MongoDB database for referential
-integrity issues.
+`refscan` is a command-line tool people can use to scan a static (i.e. non-changing) NMDC MongoDB database
+for referential integrity issues.
 
 ```mermaid
 %% This is the source code of a Mermaid diagram, which GitHub will render as a diagram.
