@@ -2,8 +2,9 @@ import typer
 from typing_extensions import Annotated
 from dataclasses import dataclass, field
 from collections import UserList
+from itertools import groupby
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.table import Table
 from pymongo import MongoClient, timeout
 from linkml_runtime import SchemaView
@@ -125,7 +126,26 @@ class ReferenceList(UserList):
     Note: `UserList` is a base class that facilitates the implementation of custom list classes.
           One thing it does is enable sorting via `sorted(the_list)`.
     """
-    pass
+
+    def get_groups(self, field_names: list[str]):
+        """
+        Returns an iterable of groups, where each group has a distinct combination of values in the specified fields.
+
+        Note: This method can be used to "consolidate" references that have the same source collection name,
+              source field name, and target collection name (i.e. ones that only differ by target class name).
+        """
+
+        def make_group_key(reference: Reference) -> tuple:
+            """Helper function that returns a key that can be used to group references."""
+            values = []
+            for field_name in field_names:
+                if not hasattr(reference, field_name):
+                    raise ValueError(f"No such field: {field_name}")
+                values.append(getattr(reference, field_name))
+            return tuple(values)
+
+        groups = groupby(sorted(self.data), key=make_group_key)
+        return groups
 
 
 @app.command("scan")
@@ -196,16 +216,19 @@ def scan(
                             references.append(reference)
 
     # Display a table of references.
+    groups = references.get_groups(["source_collection_name", "source_field_name", "target_collection_name"])
+    rows: list[tuple[str, str, str, str]] = []
+    for key, group in groups:
+        target_class_names = [ref.target_class_name for ref in group]
+        row = (key[0], key[1], key[2], ", ".join(target_class_names))
+        rows.append(row)
     table = Table(show_footer=True)
-    table.add_column("Base collection", footer=f"{len(list(set(references)))} rows")
-    table.add_column("Field")
-    table.add_column("Referenced collection")
-    table.add_column("Referenced class")
-    for reference in sorted(list(set(references))):
-        table.add_row(reference.source_collection_name,
-                      reference.source_field_name,
-                      reference.target_collection_name,
-                      reference.target_class_name)
+    table.add_column("Source collection", footer=f"{len(rows)} references")
+    table.add_column("Source field")
+    table.add_column("Target collection")
+    table.add_column("Target class(es)")
+    for row in rows:
+        table.add_row(*row)
     console.print(table)
 
     # TODO: Perform the reference checks, using that list of references to streamline the process.
