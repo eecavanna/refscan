@@ -61,12 +61,12 @@ def get_database_class_slot_names_from_schema(
     """
     Returns the names of the slots of the `Database` class in the specified `SchemaView`.
 
-    :param schema_view: A SchemaView instance
+    :param schema_view: A `SchemaView` instance
     :param distinct: Whether to filter out duplicate names
     :param verbose: Whether to show verbose output
     """
-    database_el = schema_view.get_element("Database")  # TODO: Why is a string not an `ElementName`?
-    slot_names = database_el.slots
+    class_definition = schema_view.get_class("Database")
+    slot_names = class_definition.slots
 
     if distinct:
         slot_names = list(set(slot_names))  # filter out duplicate names
