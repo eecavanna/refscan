@@ -11,7 +11,7 @@ from linkml_runtime import SchemaView
 from nmdc_schema.nmdc_data import get_nmdc_schema_definition
 
 app = typer.Typer(
-    help="Scan an NMDC MongoDB database for referential integrity issues.",
+    help="Scan a LinkML schema-compliant MongoDB database for referential integrity issues.",
     add_completion=False,  # hides the shell completion options from `--help` output
     rich_markup_mode="markdown",  # enables use of Markdown in docstrings and CLI help
 )
@@ -160,6 +160,10 @@ def scan(
                  "`$ docker run --rm --detach -p 27017:27017 mongo`",
         )] = "mongodb://localhost:27017",
 ):
+    """
+    Scans a LinkML schema-compliant MongoDB database for referential integrity issues.
+    """
+
     # Connect to the MongoDB server and verify the database is accessible.
     mongo_client = connect_to_database(mongo_uri, database_name)
 
