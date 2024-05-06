@@ -80,6 +80,15 @@ def get_database_class_slot_names_from_schema(
 def get_common_values(list_a: list, list_b: list) -> list:
     """
     Returns only the items that are present in _both_ lists.
+
+    >>> get_common_values([1, 2, 3], [4, 5])  # zero
+    []
+    >>> get_common_values([1, 2, 3], [3, 4, 5])  # one
+    [3]
+    >>> get_common_values([1, 2, 3, 4], [3, 4])  # multiple
+    [3, 4]
+    >>> get_common_values([1, 2, 3], [1, 2, 3])  # all
+    [1, 2, 3]
     """
     return [a for a in list_a if a in list_b]
 
