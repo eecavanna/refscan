@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from collections import UserList
 from itertools import groupby
 
-from rich.console import Console, Group
+from rich.console import Console
 from rich.table import Table
 from pymongo import MongoClient, timeout
 from linkml_runtime import SchemaView
@@ -227,7 +227,7 @@ def scan(
         row = (key[0], key[1], key[2], ", ".join(target_class_names))
         rows.append(row)
     table = Table(show_footer=True)
-    table.add_column("Source collection", footer=f"{len(rows)} references")
+    table.add_column("Source collection", footer=f"{len(rows)} rows")
     table.add_column("Source field")
     table.add_column("Target collection")
     table.add_column("Target class(es)")
