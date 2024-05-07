@@ -6,7 +6,16 @@ from itertools import groupby
 
 from rich.console import Console
 from rich.table import Table
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from pymongo import MongoClient, timeout
+from pymongo.database import Database
 from linkml_runtime import SchemaView
 from nmdc_schema.nmdc_data import get_nmdc_schema_definition
 
@@ -114,6 +123,18 @@ def get_names_of_classes_whose_instances_can_be_stored_in_slot(
 
 
 @dataclass(frozen=True, order=True)
+class Violation:
+    """
+    A specific reference that lacks integrity.
+    """
+    source_collection_name: str = field()
+    source_field_name: str = field()
+    source_document_object_id: str = field()
+    source_document_id: str = field()
+    target_id: str = field()
+
+
+@dataclass(frozen=True, order=True)
 class Reference:
     """
     A generic reference to a document in a collection.
@@ -136,6 +157,39 @@ class ReferenceList(UserList):
           One thing it does is enable sorting via `sorted(the_list)`.
     """
 
+    def get_source_collection_names(self) -> list[str]:
+        """
+        Returns the distinct `source_collection_names` values among all references in the list.
+        """
+        distinct_source_collection_names = []
+        for reference in self.data:
+            if reference.source_collection_name not in distinct_source_collection_names:
+                distinct_source_collection_names.append(reference.source_collection_name)
+        return distinct_source_collection_names
+
+    def get_source_field_names_of_source_collection(self, collection_name: str) -> list[str]:
+        """
+        Returns the distinct source field names of the specified source collection.
+        """
+        distinct_source_field_names = []
+        for reference in self.data:
+            if reference.source_collection_name == collection_name:
+                if reference.source_field_name not in distinct_source_field_names:
+                    distinct_source_field_names.append(reference.source_field_name)
+        return distinct_source_field_names
+
+    def get_target_collection_names(self, source_collection_name: str, source_field_name: str) -> list[str]:
+        """
+        Returns the distinct target collection names of the specified source collection/source field combination.
+        """
+        distinct_target_collection_names = []
+        for reference in self.data:
+            if reference.source_collection_name == source_collection_name and \
+                    reference.source_field_name == source_field_name:
+                if reference.target_collection_name not in distinct_target_collection_names:
+                    distinct_target_collection_names.append(reference.target_collection_name)
+        return distinct_target_collection_names
+
     def get_groups(self, field_names: list[str]):
         """
         Returns an iterable of groups, where each group has a distinct combination of values in the specified fields.
@@ -157,6 +211,23 @@ class ReferenceList(UserList):
         return groups
 
 
+def check_whether_document_having_id_exists_among_collections(
+        db: Database,
+        collection_names: list[str],
+        document_id: str
+) -> bool:
+    """
+    Checks whether any documents having the specified `id` (in its `id` field) exists
+    in any of the specified collections.
+    """
+    exists = False
+    for collection_name in collection_names:
+        if db.get_collection(collection_name).count_documents({'id': document_id}) > 0:
+            exists = True
+            break
+    return exists
+
+
 @app.command("scan")
 def scan(
         database_name: Annotated[str, typer.Option(
@@ -168,6 +239,9 @@ def scan(
                  "you can spin up a temporary MongoDB server at the default URI by running: "
                  "`$ docker run --rm --detach -p 27017:27017 mongo`",
         )] = "mongodb://localhost:27017",
+        verbose: Annotated[bool, typer.Option(
+            help="Show verbose output.",
+        )] = False,
 ):
     """
     Scans a LinkML schema-compliant MongoDB database for referential integrity issues.
@@ -242,9 +316,97 @@ def scan(
     table.add_column("Target class(es)")
     for row in rows:
         table.add_row(*row)
-    console.print(table)
+    if verbose:
+        console.print(table)
 
-    # TODO: Perform the reference checks, using that list of references to streamline the process.
+    # Define a progress bar that includes the elapsed time and M-of-N completed count.
+    custom_progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        MofNCompleteColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(),
+        TimeElapsedColumn(),
+        TextColumn("elapsed"),
+        TimeRemainingColumn(elapsed_when_finished=True),
+        TextColumn("remaining"),
+        console=console,
+        refresh_per_second=1,
+    )
+
+    # Process each collection.
+    db = mongo_client.get_database(database_name)
+    violations = []
+    with custom_progress as progress:
+        for source_collection_name in references.get_source_collection_names():
+            collection = db.get_collection(source_collection_name)
+
+            # Process each document that has any of the field that can contain a reference.
+            source_field_names = references.get_source_field_names_of_source_collection(source_collection_name)
+            or_terms = [{field_name: {'$exists': True}} for field_name in source_field_names]
+            query_filter = {'$or': or_terms}
+            if verbose:
+                console.print(f"{query_filter=}")
+
+            # Set up the progress bar for this task.
+            num_relevant_documents = collection.count_documents(query_filter)
+            task_id = progress.add_task(f"{source_collection_name}", total=num_relevant_documents)
+
+            # Advance the progress bar by 0 (this makes it so that, even if there are 0 relevant documents,
+            # that progress bar does not continue counting its "elapsed time" upward).
+            progress.advance(task_id, advance=0)
+
+            for document in collection.find(query_filter):
+
+                # Advance the progress bar for the current task.
+                progress.advance(task_id)
+
+                source_document_object_id = document["_id"]
+                source_document_id = document["id"] if "id" in document else None
+                for field_name in source_field_names:
+                    if field_name in document:
+                        target_collection_names = references.get_target_collection_names(source_collection_name,
+                                                                                         field_name)
+                        # console.print(f"{source_collection_name}.{field_name} -> {target_collection_names}")
+
+                        # Handle both the multiple-value and the single-value case.
+                        if type(document[field_name]) is list:
+                            target_ids = document[field_name]
+                            for target_id in target_ids:
+                                target_exists = check_whether_document_having_id_exists_among_collections(
+                                    db,
+                                    target_collection_names,
+                                    target_id
+                                )
+                                if not target_exists:
+                                    violation = Violation(source_collection_name=source_collection_name,
+                                                          source_field_name=field_name,
+                                                          source_document_object_id=source_document_object_id,
+                                                          source_document_id=source_document_id,
+                                                          target_id=target_id)
+                                    console.print(f"Failed to find document having `id` '{target_id}' "
+                                                  f"among collections: {target_collection_names}. "
+                                                  f"{violation=}")
+                                    violations.append(violation)
+                        else:
+                            target_id = document[field_name]
+                            target_exists = check_whether_document_having_id_exists_among_collections(
+                                db,
+                                target_collection_names,
+                                target_id
+                            )
+                            if not target_exists:
+                                violation = Violation(source_collection_name=source_collection_name,
+                                                      source_field_name=field_name,
+                                                      source_document_object_id=source_document_object_id,
+                                                      source_document_id=source_document_id,
+                                                      target_id=target_id)
+                                console.print(f"Failed to find document having `id` '{target_id}' "
+                                              f"among collections: {target_collection_names}. "
+                                              f"{violation=}")
+                                violations.append(violation)
+
+    # Print all the violations.
+    console.print(violations)
 
     # Close the connection to the MongoDB server.
     mongo_client.close()
