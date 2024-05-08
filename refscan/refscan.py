@@ -1,9 +1,9 @@
-import typer
 from typing_extensions import Annotated
 from dataclasses import dataclass, field
 from collections import UserList
 from itertools import groupby
 
+import typer
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
