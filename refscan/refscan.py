@@ -111,26 +111,6 @@ def get_common_values(list_a: list, list_b: list) -> list:
     return [a for a in list_a if a in list_b]
 
 
-def get_names_of_classes_whose_instances_can_be_stored_in_slot(
-        schema_view: SchemaView,
-        slot_name: str,
-        verbose: bool = False
-) -> list[str]:
-    """
-    Returns the names of the classes whose instances can be stored in the slot having the specified name.
-    """
-    slot_definition = schema_view.get_slot(slot_name)
-    slot_range = slot_definition.range
-
-    # Get the name of the class and of each of its descendants, whose instances can populate this slot.
-    class_names_valid_for_slot = schema_view.class_descendants(slot_range)  # includes own class name
-
-    if verbose:
-        console.print(f"{slot_name} ({len(class_names_valid_for_slot)}): {class_names_valid_for_slot=}")
-
-    return class_names_valid_for_slot
-
-
 @dataclass(frozen=True, order=True)
 class Violation:
     """
@@ -279,10 +259,10 @@ def scan(
     # For each collection, determine the names of the classes whose instances can be stored in that collection.
     collection_name_to_class_names = {}  # example: { "study_set": ["Study"] }
     for collection_name in collection_names:
-        collection_name_to_class_names[collection_name] = get_names_of_classes_whose_instances_can_be_stored_in_slot(
-            schema_view,
-            slot_name=collection_name
-        )
+        slot_definition = schema_view.induced_slot(collection_name, DATABASE_CLASS_NAME)
+        name_of_eligible_class = slot_definition.range
+        names_of_eligible_classes = schema_view.class_descendants(name_of_eligible_class)  # includes own class name
+        collection_name_to_class_names[collection_name] = names_of_eligible_classes
 
     # Initialize the list of references. A reference is effectively a "foreign key" (i.e. a pointer).
     references = ReferenceList()
