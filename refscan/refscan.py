@@ -29,6 +29,9 @@ app = typer.Typer(
 # Reference: https://rich.readthedocs.io/en/stable/console.html
 console = Console()
 
+# Note: This is the only schema class name hard-coded into this script.
+DATABASE_CLASS_NAME = "Database"
+
 
 def connect_to_database(mongo_uri: str, database_name: str, verbose: bool = True) -> MongoClient:
     """
@@ -62,28 +65,34 @@ def get_collection_names(mongo_client: MongoClient, database_name: str, verbose:
     return collection_names
 
 
-def get_database_class_slot_names_from_schema(
+def get_collection_names_from_schema(
         schema_view: SchemaView,
-        distinct: bool = False,
         verbose: bool = True
 ) -> list[str]:
     """
-    Returns the names of the slots of the `Database` class in the specified `SchemaView`.
+    Returns the names of the slots of the `Database` class that correspond to database collections.
 
     :param schema_view: A `SchemaView` instance
-    :param distinct: Whether to filter out duplicate names
     :param verbose: Whether to show verbose output
     """
-    class_definition = schema_view.get_class("Database")
-    slot_names = class_definition.slots
+    collection_names = []
 
-    if distinct:
-        slot_names = list(set(slot_names))  # filter out duplicate names
+    for slot_name in schema_view.class_slots(DATABASE_CLASS_NAME):
+        slot_definition = schema_view.induced_slot(slot_name, DATABASE_CLASS_NAME)
+
+        # Filter out any hypothetical (future) slots that don't correspond to a collection (e.g. `db_version`).
+        if slot_definition.multivalued and slot_definition.inlined_as_list:
+            collection_names.append(slot_name)
+
+        # Filter out duplicate names. This is to work around the following issues in the schema:
+        # - https://github.com/microbiomedata/nmdc-schema/issues/1954
+        # - https://github.com/microbiomedata/nmdc-schema/issues/1955
+        collection_names = list(set(collection_names))
 
     if verbose:
-        console.print(f"Schema database slots{' (distinct):' if distinct else ':'} {len(slot_names)}")
+        console.print(f"Collections described by schema: {len(collection_names)}")
 
-    return slot_names
+    return collection_names
 
 
 def get_common_values(list_a: list, list_b: list) -> list:
@@ -143,10 +152,11 @@ class Reference:
     Note: `order` means the instances have methods that help with sorting. For example, an `__eq__` method that
           can be used to compare instances of the class as thought they were tuples of those instances' fields.
     """
-    source_collection_name: str = field()
-    source_field_name: str = field()
-    target_collection_name: str = field()
-    target_class_name: str = field(default="")
+    source_collection_name: str = field()  # e.g. "study_set"
+    source_class_name: str = field()  # e.g. "study_set"
+    source_field_name: str = field()  # e.g. "part_of"
+    target_collection_name: str = field()  # e.g. "study_set"
+    target_class_name: str = field(default="")  # e.g. "Study"
 
 
 class ReferenceList(UserList):
@@ -190,7 +200,7 @@ class ReferenceList(UserList):
                     distinct_target_collection_names.append(reference.target_collection_name)
         return distinct_target_collection_names
 
-    def get_groups(self, field_names: list[str]):
+    def get_groups(self, field_names: list[str]) -> list[tuple[str, str, str, str, list[str]]]:
         """
         Returns an iterable of groups, where each group has a distinct combination of values in the specified fields.
 
@@ -257,60 +267,84 @@ def scan(
     # Make a `SchemaView` that we can use to inspect the schema.
     schema_view = SchemaView(get_nmdc_schema_definition())
 
-    # Identify the distinct slots of the `Database` class in the schema.
+    # Get a list of collection names (technically, `Database` slot names) from the schema.
     # e.g. ["study_set", "bar_set", ...]
-    schema_database_slot_names = get_database_class_slot_names_from_schema(schema_view, distinct=True)
+    schema_database_slot_names = get_collection_names_from_schema(schema_view)
 
     # Get the intersection of the two.
     # e.g. ["study_set", ...]
     collection_names: list[str] = get_common_values(mongo_collection_names, schema_database_slot_names)
     console.print(f"MongoDB collections described by schema: {len(collection_names)}")
 
-    # Determine the names of the schema classes of which instances can be stored in each collection.
-    collection_name_to_class_names = {}
+    # For each collection, determine the names of the classes whose instances can be stored in that collection.
+    collection_name_to_class_names = {}  # example: { "study_set": ["Study"] }
     for collection_name in collection_names:
-        class_names = get_names_of_classes_whose_instances_can_be_stored_in_slot(schema_view, slot_name=collection_name)
-        collection_name_to_class_names[collection_name] = class_names
+        collection_name_to_class_names[collection_name] = get_names_of_classes_whose_instances_can_be_stored_in_slot(
+            schema_view,
+            slot_name=collection_name
+        )
 
-    # Determine the names of those schema classes' slots that can be foreign keys (i.e. references to class instances).
+    # Initialize the list of references. A reference is effectively a "foreign key" (i.e. a pointer).
     references = ReferenceList()
+
+    # For each class whose instances can be stored in each collection, determine which of its slots can be a reference.
     for collection_name, class_names in collection_name_to_class_names.items():
         for class_name in class_names:
-            class_definition = schema_view.get_class(class_name)
-            slot_names = class_definition.slots
-            for slot_name in slot_names:
+            for slot_name in schema_view.class_slots(class_name):
                 # Get the slot definition in the context of its use on this particular class.
                 slot_definition = schema_view.induced_slot(slot_name=slot_name, class_name=class_name)
-                slot_range = slot_definition.range
 
-                # If the slot's range is not a class name (e.g. it's an Enum instead), abort processing this slot.
-                if slot_range not in schema_view.all_classes():
-                    continue
+                # Determine the slot's "effective" range, by taking into account its `any_of` constraints (if defined).
+                #
+                # Note: The `any_of` constraints constrain the slot's "effective" range beyond that described by the
+                #       induced slot definition's `range` attribute. `SchemaView` does not seem to provide the result
+                #       of applying those additional constraints, so we do it manually here (if any are defined).
+                #
+                # Reference: https://github.com/orgs/linkml/discussions/2101#discussion-6625646
+                #
+                names_of_eligible_target_classes: list[str] = []
+                if "any_of" in slot_definition and len(slot_definition.any_of) > 0:  # use the `any_of` attribute
+                    for slot_expression in slot_definition.any_of:
+                        if slot_expression.range in schema_view.all_classes():
+                            own_and_descendant_class_names = schema_view.class_descendants(slot_expression.range)
+                            names_of_eligible_target_classes.extend(own_and_descendant_class_names)
+                else:  # use the `range` attribute
+                    if slot_definition.range not in schema_view.all_classes():  # if it's not a class name, abort
+                        continue
+                    else:
+                        # Get the specified class name and the names of all classes that inherit from it.
+                        own_and_descendant_class_names = schema_view.class_descendants(slot_definition.range)
+                        names_of_eligible_target_classes.extend(own_and_descendant_class_names)
 
-                # Make a list consisting of the name of that class and the name of each of that class's descendants.
-                # Example: "Animal" -> ["Animal", "Dog", "Cat", "Snake", "Husky", "Poodle"]
-                # This is effectively a list of the names of the classes whose instances can be stored in this slot.
-                class_names_valid_for_slot = schema_view.class_descendants(slot_range)  # includes own class name
+                # Remove duplicate class names.
+                names_of_eligible_target_classes = list(set(names_of_eligible_target_classes))
 
-                # For each class whose instances can be stored in any collection, record it as a reference.
-                for class_name_valid_for_slot in class_names_valid_for_slot:
-                    for referenced_collection_name, class_names_valid_for_referenced_collection in collection_name_to_class_names.items():
-                        if class_name_valid_for_slot in class_names_valid_for_referenced_collection:
-                            reference = Reference(collection_name,
-                                                  slot_name,
-                                                  referenced_collection_name,
-                                                  class_name_valid_for_slot)
+                # For each of those classes whose instances can be stored in any collection, catalog a reference.
+                for name_of_eligible_target_class in names_of_eligible_target_classes:
+                    for target_collection_name, class_names_in_collection in collection_name_to_class_names.items():
+                        if name_of_eligible_target_class in class_names_in_collection:
+                            reference = Reference(source_collection_name=collection_name,
+                                                  source_class_name=class_name,
+                                                  source_field_name=slot_name,
+                                                  target_collection_name=target_collection_name,
+                                                  target_class_name=name_of_eligible_target_class)
                             references.append(reference)
 
+    console.print(f"Slot-to-ID references described by schema: {len(references)}")
+
     # Display a table of references.
-    groups = references.get_groups(["source_collection_name", "source_field_name", "target_collection_name"])
-    rows: list[tuple[str, str, str, str]] = []
+    groups = references.get_groups(["source_collection_name",
+                                    "source_class_name",
+                                    "source_field_name",
+                                    "target_collection_name"])
+    rows: list[tuple[str, str, str, str, str]] = []
     for key, group in groups:
-        target_class_names = [ref.target_class_name for ref in group]
-        row = (key[0], key[1], key[2], ", ".join(target_class_names))
+        target_class_names = list(set([ref.target_class_name for ref in group]))  # omit duplicate class names
+        row = (key[0], key[1], key[2], key[3], ", ".join(target_class_names))
         rows.append(row)
     table = Table(show_footer=True)
     table.add_column("Source collection", footer=f"{len(rows)} rows")
+    table.add_column("Source class")
     table.add_column("Source field")
     table.add_column("Target collection")
     table.add_column("Target class(es)")
@@ -320,9 +354,12 @@ def scan(
         console.print(table)
 
     # Define a progress bar that includes the elapsed time and M-of-N completed count.
+    # Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
     custom_progress = Progress(
         TextColumn("[progress.description]{task.description}"),
+        TextColumn("[red]{task.fields[num_violations]}[/red] issues found in"),
         MofNCompleteColumn(),
+        TextColumn("documents"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         BarColumn(),
         TimeElapsedColumn(),
@@ -333,9 +370,10 @@ def scan(
         refresh_per_second=1,
     )
 
-    # Process each collection.
+    # Process each collection, checking for referential integrity violations
+    # (using the reference catalog created earlier to shrink the problem space).
     db = mongo_client.get_database(database_name)
-    violations = []
+    source_collections_and_their_violations: dict[str, list[Violation]] = {}
     with custom_progress as progress:
         for source_collection_name in references.get_source_collection_names():
             collection = db.get_collection(source_collection_name)
@@ -349,16 +387,21 @@ def scan(
 
             # Set up the progress bar for this task.
             num_relevant_documents = collection.count_documents(query_filter)
-            task_id = progress.add_task(f"{source_collection_name}", total=num_relevant_documents)
+            task_id = progress.add_task(f"{source_collection_name}", total=num_relevant_documents, num_violations=0)
 
             # Advance the progress bar by 0 (this makes it so that, even if there are 0 relevant documents,
             # that progress bar does not continue counting its "elapsed time" upward).
-            progress.advance(task_id, advance=0)
+            progress.update(task_id, advance=1)
+
+            # Initialize the violation list for this collection.
+            source_collections_and_their_violations[source_collection_name] = []
 
             for document in collection.find(query_filter):
 
                 # Advance the progress bar for the current task.
-                progress.advance(task_id)
+                progress.update(task_id,
+                                advance=1,
+                                num_violations=len(source_collections_and_their_violations[source_collection_name]))
 
                 source_document_object_id = document["_id"]
                 source_document_id = document["id"] if "id" in document else None
@@ -366,7 +409,6 @@ def scan(
                     if field_name in document:
                         target_collection_names = references.get_target_collection_names(source_collection_name,
                                                                                          field_name)
-                        # console.print(f"{source_collection_name}.{field_name} -> {target_collection_names}")
 
                         # Handle both the multiple-value and the single-value case.
                         if type(document[field_name]) is list:
@@ -383,10 +425,12 @@ def scan(
                                                           source_document_object_id=source_document_object_id,
                                                           source_document_id=source_document_id,
                                                           target_id=target_id)
-                                    console.print(f"Failed to find document having `id` '{target_id}' "
-                                                  f"among collections: {target_collection_names}. "
-                                                  f"{violation=}")
-                                    violations.append(violation)
+                                    source_collections_and_their_violations[source_collection_name].append(violation)
+                                    if verbose:
+                                        console.print(f"Failed to find document having `id` '{target_id}' "
+                                                      f"among collections: {target_collection_names}. "
+                                                      f"{violation=}")
+
                         else:
                             target_id = document[field_name]
                             target_exists = check_whether_document_having_id_exists_among_collections(
@@ -400,13 +444,20 @@ def scan(
                                                       source_document_object_id=source_document_object_id,
                                                       source_document_id=source_document_id,
                                                       target_id=target_id)
-                                console.print(f"Failed to find document having `id` '{target_id}' "
-                                              f"among collections: {target_collection_names}. "
-                                              f"{violation=}")
-                                violations.append(violation)
+                                source_collections_and_their_violations[source_collection_name].append(violation)
+                                if verbose:
+                                    console.print(f"Failed to find document having `id` '{target_id}' "
+                                                  f"among collections: {target_collection_names}. "
+                                                  f"{violation=}")
 
     # Print all the violations.
-    console.print(violations)
+    total_num_violations = 0
+    for collection_name, violations in source_collections_and_their_violations.items():
+        console.print(f"Number of violations in {collection_name}: {len(violations)}")
+        if verbose:
+            console.print(violations)
+        total_num_violations += len(violations)
+    console.print(f"Total violations: {total_num_violations}")
 
     # Close the connection to the MongoDB server.
     mongo_client.close()
