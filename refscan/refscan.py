@@ -268,7 +268,8 @@ def scan(
     references = ReferenceList()
 
     # For each class whose instances can be stored in each collection, determine which of its slots can be a reference.
-    for collection_name, class_names in collection_name_to_class_names.items():
+    sorted_collection_names_to_class_names = sorted(collection_name_to_class_names.items(), key=lambda kv: kv[0])  # sort by key
+    for collection_name, class_names in sorted_collection_names_to_class_names:
         for class_name in class_names:
             for slot_name in schema_view.class_slots(class_name):
                 # Get the slot definition in the context of its use on this particular class.
