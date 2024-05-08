@@ -346,7 +346,7 @@ def scan(
         TimeElapsedColumn(),
         TextColumn("elapsed"),
         TimeRemainingColumn(elapsed_when_finished=True),
-        TextColumn("remaining"),
+        TextColumn("{task.fields[remaining_time_label]}"),
         console=console,
         refresh_per_second=1,
     )
@@ -368,7 +368,10 @@ def scan(
 
             # Set up the progress bar for this task.
             num_relevant_documents = collection.count_documents(query_filter)
-            task_id = progress.add_task(f"{source_collection_name}", total=num_relevant_documents, num_violations=0)
+            task_id = progress.add_task(f"{source_collection_name}",
+                                        total=num_relevant_documents,
+                                        num_violations=0,
+                                        remaining_time_label="remaining")
 
             # Advance the progress bar by 0 (this makes it so that, even if there are 0 relevant documents,
             # that progress bar does not continue counting its "elapsed time" upward).
@@ -430,6 +433,9 @@ def scan(
                                     console.print(f"Failed to find document having `id` '{target_id}' "
                                                   f"among collections: {target_collection_names}. "
                                                   f"{violation=}")
+
+            # Update the progress bar to indicate the current task is complete.
+            progress.update(task_id, remaining_time_label="done")
 
     # Print all the violations.
     total_num_violations = 0
