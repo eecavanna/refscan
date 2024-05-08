@@ -60,7 +60,7 @@ def get_collection_names(mongo_client: MongoClient, database_name: str, verbose:
     collection_names = db.list_collection_names()
 
     if verbose:
-        console.print(f"MongoDB collections: {len(collection_names)}")
+        console.print(f"Existing collections: {len(collection_names)}")
 
     return collection_names
 
@@ -254,7 +254,7 @@ def scan(
     # Get the intersection of the two.
     # e.g. ["study_set", ...]
     collection_names: list[str] = get_common_values(mongo_collection_names, schema_database_slot_names)
-    console.print(f"MongoDB collections described by schema: {len(collection_names)}")
+    console.print(f"Existing collections described by schema: {len(collection_names)}")
 
     # For each collection, determine the names of the classes whose instances can be stored in that collection.
     collection_name_to_class_names = {}  # example: { "study_set": ["Study"] }
