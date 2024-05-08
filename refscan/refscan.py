@@ -371,7 +371,7 @@ def scan(
 
             # Advance the progress bar by 0 (this makes it so that, even if there are 0 relevant documents,
             # that progress bar does not continue counting its "elapsed time" upward).
-            progress.update(task_id, advance=1)
+            progress.update(task_id, advance=0)
 
             # Initialize the violation list for this collection.
             source_collections_and_their_violations[source_collection_name] = []
