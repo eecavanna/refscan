@@ -214,8 +214,9 @@ def check_whether_document_having_id_exists_among_collections(
     - https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find_one
     """
     document_exists = False
+    query_filter = {"id": document_id}
     for collection_name in collection_names:
-        document_exists = db.get_collection(collection_name).find_one({'id': document_id}) is not None
+        document_exists = db.get_collection(collection_name).find_one(query_filter, projection=["_id"]) is not None
         break
     return document_exists
 
@@ -270,7 +271,8 @@ def scan(
     references = ReferenceList()
 
     # For each class whose instances can be stored in each collection, determine which of its slots can be a reference.
-    sorted_collection_names_to_class_names = sorted(collection_name_to_class_names.items(), key=lambda kv: kv[0])  # sort by key
+    sorted_collection_names_to_class_names = sorted(collection_name_to_class_names.items(),
+                                                    key=lambda kv: kv[0])  # sort by key
     for collection_name, class_names in sorted_collection_names_to_class_names:
         for class_name in class_names:
             for slot_name in schema_view.class_slots(class_name):
@@ -382,7 +384,7 @@ def scan(
             # Initialize the violation list for this collection.
             source_collections_and_their_violations[source_collection_name] = []
 
-            for document in collection.find(query_filter):
+            for document in collection.find(query_filter, projection=source_field_names):
 
                 # Advance the progress bar for the current task.
                 progress.update(task_id,
