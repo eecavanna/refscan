@@ -1,3 +1,4 @@
+from typing import List, Optional
 from typing_extensions import Annotated
 from dataclasses import dataclass, field
 from collections import UserList
@@ -235,10 +236,18 @@ def scan(
         verbose: Annotated[bool, typer.Option(
             help="Show verbose output.",
         )] = False,
+        skip_source_collection: Annotated[Optional[List[str]], typer.Option(
+            help="Name of collection you do not want to search for referring documents. "
+                 "Option can be used multiple times.",
+        )] = None,
 ):
     """
     Scans a LinkML schema-compliant MongoDB database for referential integrity issues.
     """
+
+    # Make a more self-documenting alias for the CLI option that can be specified multiple times.
+    # Reference: https://typer.tiangolo.com/tutorial/multiple-values/multiple-options/
+    names_of_source_collections_to_skip: list[str] = [] if skip_source_collection is None else skip_source_collection
 
     # Connect to the MongoDB server and verify the database is accessible.
     mongo_client = connect_to_database(mongo_uri, database_name)
@@ -361,6 +370,12 @@ def scan(
     source_collections_and_their_violations: dict[str, list[Violation]] = {}
     with custom_progress as progress:
         for source_collection_name in references.get_source_collection_names():
+
+            # If this source collection is one of the ones the user wanted to skip, skip it now.
+            if source_collection_name in names_of_source_collections_to_skip:
+                console.print(f"⚠️  [orange][bold]Skipping source collection:[/bold][/orange] {source_collection_name}")
+                continue
+
             collection = db.get_collection(source_collection_name)
 
             # Process each document that has any of the field that can contain a reference.
