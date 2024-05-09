@@ -21,7 +21,7 @@ from linkml_runtime import SchemaView
 from nmdc_schema.nmdc_data import get_nmdc_schema_definition
 
 app = typer.Typer(
-    help="Scan a LinkML schema-compliant MongoDB database for referential integrity issues.",
+    help="Scan the NMDC MongoDB database for referential integrity violations.",
     add_completion=False,  # hides the shell completion options from `--help` output
     rich_markup_mode="markdown",  # enables use of Markdown in docstrings and CLI help
 )
@@ -242,7 +242,7 @@ def scan(
         )] = None,
 ):
     """
-    Scans a LinkML schema-compliant MongoDB database for referential integrity issues.
+    Scans the NMDC MongoDB database for referential integrity violations.
     """
 
     # Make a more self-documenting alias for the CLI option that can be specified multiple times.
@@ -351,7 +351,7 @@ def scan(
     # Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
     custom_progress = Progress(
         TextColumn("[progress.description]{task.description}"),
-        TextColumn("[red]{task.fields[num_violations]}[/red] issues found in"),
+        TextColumn("[red]{task.fields[num_violations]}[/red] violations found in"),
         MofNCompleteColumn(),
         TextColumn("documents"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),

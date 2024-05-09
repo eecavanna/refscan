@@ -1,7 +1,7 @@
 # refscan
 
-`refscan` is a command-line tool people can use to scan a static (i.e. non-changing) NMDC MongoDB database
-for referential integrity issues.
+`refscan` is a command-line tool people can use to scan the NMDC MongoDB database
+for referential integrity violations.
 
 ```mermaid
 %% This is the source code of a Mermaid diagram, which GitHub will render as a diagram.
@@ -10,7 +10,7 @@ for referential integrity issues.
 graph LR
     database[(MongoDB<br>Database)]
     script[["refscan.py"]]
-    result["List of<br>issues"]
+    result["List of<br>violations"]
     database --> script --> result
 ```
 
