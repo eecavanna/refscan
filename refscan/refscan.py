@@ -238,7 +238,7 @@ def check_whether_document_having_id_exists_among_collections(
         document_id: str
 ) -> bool:
     """
-    Checks whether any documents having the specified `id` (in its `id` field) exists
+    Checks whether any documents having the specified `id` value (in its `id` field) exists
     in any of the specified collections.
 
     References:
@@ -248,7 +248,8 @@ def check_whether_document_having_id_exists_among_collections(
     query_filter = {"id": document_id}
     for collection_name in collection_names:
         document_exists = db.get_collection(collection_name).find_one(query_filter, projection=["_id"]) is not None
-        break
+        if document_exists:  # if we found the document in this collection, there is no need to keep searching
+            break
     return document_exists
 
 
