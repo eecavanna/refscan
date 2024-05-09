@@ -55,7 +55,11 @@ def connect_to_database(mongo_uri: str, database_name: str, verbose: bool = True
     return mongo_client
 
 
-def get_collection_names(mongo_client: MongoClient, database_name: str, verbose: bool = True) -> list[str]:
+def get_collection_names_from_database(
+        mongo_client: MongoClient,
+        database_name: str,
+        verbose: bool = True
+) -> list[str]:
     """
     Returns the names of the collections that exist in the specified database.
     """
@@ -303,7 +307,7 @@ def scan(
 
     # Identify the collections in the database.
     # e.g. ["study_set", "foo_set", ...]
-    mongo_collection_names = get_collection_names(mongo_client, database_name)
+    mongo_collection_names = get_collection_names_from_database(mongo_client, database_name)
 
     # Make a `SchemaView` that we can use to inspect the schema.
     schema_view = SchemaView(get_nmdc_schema_definition())
