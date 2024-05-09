@@ -1,2 +1,6 @@
 # JetBrains IDE files.
 /.idea
+
+# Output files (with their default names).
+/references.tsv
+/violations.tsv

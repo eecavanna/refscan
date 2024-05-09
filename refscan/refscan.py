@@ -1,8 +1,10 @@
+from pathlib import Path
 from typing import List, Optional
 from typing_extensions import Annotated
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, astuple
 from collections import UserList
 from itertools import groupby
+import csv
 
 import typer
 from rich.console import Console
@@ -124,6 +126,23 @@ class Violation:
     target_id: str = field()
 
 
+class ViolationList(UserList):
+    """
+    A list of violations.
+    """
+
+    def dump_to_tsv_file(self, file_path: str | Path) -> None:
+        """
+        Helper function that dumps the violations to a TSV file at the specified path.
+        """
+        column_names = [field_.name for field_ in fields(Violation)]
+        with open(file_path, "w", newline="") as tsv_file:
+            writer = csv.writer(tsv_file, delimiter="\t")
+            writer.writerow(column_names)  # header row
+            for violation in self.data:
+                writer.writerow(astuple(violation))  # data row
+
+
 @dataclass(frozen=True, order=True)
 class Reference:
     """
@@ -137,7 +156,7 @@ class Reference:
     source_class_name: str = field()  # e.g. "study_set"
     source_field_name: str = field()  # e.g. "part_of"
     target_collection_name: str = field()  # e.g. "study_set"
-    target_class_name: str = field(default="")  # e.g. "Study"
+    target_class_name: str = field()  # e.g. "Study"
 
 
 class ReferenceList(UserList):
@@ -201,6 +220,17 @@ class ReferenceList(UserList):
         groups = groupby(sorted(self.data), key=make_group_key)
         return groups
 
+    def dump_to_tsv_file(self, file_path: str | Path) -> None:
+        """
+        Helper function that dumps the references to a TSV file at the specified path.
+        """
+        column_names = [field_.name for field_ in fields(Reference)]
+        with open(file_path, "w", newline="") as tsv_file:
+            writer = csv.writer(tsv_file, delimiter="\t")
+            writer.writerow(column_names)  # header row
+            for reference in self.data:
+                writer.writerow(astuple(reference))  # data row
+
 
 def check_whether_document_having_id_exists_among_collections(
         db: Database,
@@ -236,17 +266,35 @@ def scan(
         verbose: Annotated[bool, typer.Option(
             help="Show verbose output.",
         )] = False,
+        # Reference: https://typer.tiangolo.com/tutorial/multiple-values/multiple-options/
         skip_source_collection: Annotated[Optional[List[str]], typer.Option(
+            "--skip-source-collection", "--skip",
             help="Name of collection you do not want to search for referring documents. "
                  "Option can be used multiple times.",
         )] = None,
+        # Reference: https://typer.tiangolo.com/tutorial/parameter-types/path/
+        reference_report_file_path: Annotated[Optional[Path], typer.Option(
+            "--reference-report",
+            dir_okay=False,
+            writable=True,
+            readable=False,
+            resolve_path=True,
+            help="Filesystem path at which you want the program to generate its reference report.",
+        )] = "references.tsv",
+        violation_report_file_path: Annotated[Optional[Path], typer.Option(
+            "--violation-report",
+            dir_okay=False,
+            writable=True,
+            readable=False,
+            resolve_path=True,
+            help="Filesystem path at which you want the program to generate its violation report.",
+        )] = "violations.tsv",
 ):
     """
     Scans the NMDC MongoDB database for referential integrity violations.
     """
 
     # Make a more self-documenting alias for the CLI option that can be specified multiple times.
-    # Reference: https://typer.tiangolo.com/tutorial/multiple-values/multiple-options/
     names_of_source_collections_to_skip: list[str] = [] if skip_source_collection is None else skip_source_collection
 
     # Connect to the MongoDB server and verify the database is accessible.
@@ -326,6 +374,10 @@ def scan(
 
     console.print(f"Slot-to-ID references described by schema: {len(references)}")
 
+    # Create a reference report in TSV format.
+    console.print(f"Writing reference report: {reference_report_file_path}")
+    references.dump_to_tsv_file(file_path=reference_report_file_path)
+
     # Display a table of references.
     groups = references.get_groups(["source_collection_name",
                                     "source_class_name",
@@ -351,9 +403,9 @@ def scan(
     # Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
     custom_progress = Progress(
         TextColumn("[progress.description]{task.description}"),
-        TextColumn("[red]{task.fields[num_violations]}[/red] violations found in"),
+        TextColumn("[red]{task.fields[num_violations]}[/red] violations"),
         MofNCompleteColumn(),
-        TextColumn("documents"),
+        TextColumn("documents scanned"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         BarColumn(),
         TimeElapsedColumn(),
@@ -367,7 +419,7 @@ def scan(
     # Process each collection, checking for referential integrity violations
     # (using the reference catalog created earlier to shrink the problem space).
     db = mongo_client.get_database(database_name)
-    source_collections_and_their_violations: dict[str, list[Violation]] = {}
+    source_collections_and_their_violations: dict[str, ViolationList] = {}
     with custom_progress as progress:
         for source_collection_name in references.get_source_collection_names():
 
@@ -378,12 +430,17 @@ def scan(
 
             collection = db.get_collection(source_collection_name)
 
-            # Process each document that has any of the field that can contain a reference.
+            # Prepare the query we will use to fetch the source documents.
             source_field_names = references.get_source_field_names_of_source_collection(source_collection_name)
             or_terms = [{field_name: {'$exists': True}} for field_name in source_field_names]
             query_filter = {'$or': or_terms}
             if verbose:
                 console.print(f"{query_filter=}")
+
+            # Ensure the fields we fetch include "id" (so we can produce a more user-friendly report later).
+            query_projection = source_field_names + ["id"] if "id" not in source_field_names else source_field_names
+            if verbose:
+                console.print(f"{query_projection=}")
 
             # Set up the progress bar for this task.
             num_relevant_documents = collection.count_documents(query_filter)
@@ -397,9 +454,9 @@ def scan(
             progress.update(task_id, advance=0)
 
             # Initialize the violation list for this collection.
-            source_collections_and_their_violations[source_collection_name] = []
+            source_collections_and_their_violations[source_collection_name] = ViolationList()
 
-            for document in collection.find(query_filter, projection=source_field_names):
+            for document in collection.find(query_filter, projection=query_projection):
 
                 # Advance the progress bar for the current task.
                 progress.update(task_id,
@@ -456,7 +513,10 @@ def scan(
             # Update the progress bar to indicate the current task is complete.
             progress.update(task_id, remaining_time_label="done")
 
-    # Print all the violations.
+    # Close the connection to the MongoDB server.
+    mongo_client.close()
+
+    # Print a summary of the violations.
     total_num_violations = 0
     for collection_name, violations in source_collections_and_their_violations.items():
         console.print(f"Number of violations in {collection_name}: {len(violations)}")
@@ -465,8 +525,13 @@ def scan(
         total_num_violations += len(violations)
     console.print(f"Total violations: {total_num_violations}")
 
-    # Close the connection to the MongoDB server.
-    mongo_client.close()
+    # Create a violation report in TSV format — for all collections combined.
+    # Note: We can still identify a violation's source collection by checking its `source_collection_name` attribute.
+    console.print(f"Writing violation report: {violation_report_file_path}")
+    all_violations = ViolationList()
+    for violations in source_collections_and_their_violations.values():
+        all_violations.extend(violations)
+    all_violations.dump_to_tsv_file(file_path=violation_report_file_path)
 
 
 if __name__ == "__main__":
