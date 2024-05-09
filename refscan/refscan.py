@@ -209,13 +209,15 @@ def check_whether_document_having_id_exists_among_collections(
     """
     Checks whether any documents having the specified `id` (in its `id` field) exists
     in any of the specified collections.
+
+    References:
+    - https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find_one
     """
-    exists = False
+    document_exists = False
     for collection_name in collection_names:
-        if db.get_collection(collection_name).count_documents({'id': document_id}) > 0:
-            exists = True
-            break
-    return exists
+        document_exists = db.get_collection(collection_name).find_one({'id': document_id}) is not None
+        break
+    return document_exists
 
 
 @app.command("scan")
