@@ -157,9 +157,9 @@ class Reference:
           can be used to compare instances of the class as thought they were tuples of those instances' fields.
     """
     source_collection_name: str = field()  # e.g. "study_set"
-    source_class_name: str = field()  # e.g. "study_set"
+    source_class_name: str = field()  # e.g. "Study"
     source_field_name: str = field()  # e.g. "part_of"
-    target_collection_name: str = field()  # e.g. "study_set"
+    target_collection_name: str = field()  # e.g. "study_set" (reminder: a study can be part of another study)
     target_class_name: str = field()  # e.g. "Study"
 
 
