@@ -8,7 +8,7 @@ import csv
 
 import typer
 from rich.console import Console
-from rich.table import Table
+from rich.table import Table, Column
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -402,12 +402,13 @@ def scan(
         target_class_names = list(set([ref.target_class_name for ref in group]))  # omit duplicate class names
         row = (key[0], key[1], key[2], key[3], ", ".join(target_class_names))
         rows.append(row)
-    table = Table(show_footer=True)
-    table.add_column("Source collection", footer=f"{len(rows)} rows")
-    table.add_column("Source class")
-    table.add_column("Source field")
-    table.add_column("Target collection")
-    table.add_column("Target class(es)")
+    table = Table(Column(header="Source collection", footer=f"{len(rows)} rows"),
+                  Column(header="Source class"),
+                  Column(header="Source field"),
+                  Column(header="Target collection"),
+                  Column(header="Target class(es)"),
+                  title="References",
+                  show_footer=True)
     for row in rows:
         table.add_row(*row)
     if verbose:
@@ -430,11 +431,14 @@ def scan(
         refresh_per_second=1,
     )
 
-    # Process each collection, checking for referential integrity violations
-    # (using the reference catalog created earlier to shrink the problem space).
     db = mongo_client.get_database(database_name)
     source_collections_and_their_violations: dict[str, ViolationList] = {}
     with custom_progress as progress:
+
+        # Process each collection, checking for referential integrity violations
+        # (using the reference catalog created earlier to know which collections
+        # can container "referrers", which of their slots can contain references
+        # and which collections can contain the referred-to "referees").
         for source_collection_name in references.get_source_collection_names():
 
             # If this source collection is one of the ones the user wanted to skip, skip it now.
