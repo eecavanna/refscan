@@ -8,10 +8,13 @@ for referential integrity violations.
 %% Note: PyPI does not render Mermaid diagrams, and instead displays their source code.
 %%       Reference: https://github.com/pypi/warehouse/issues/13083
 graph LR
-    database[(MongoDB<br>Database)]
+    database[(MongoDB<br>database)]
+    schema[LinkML<br>schema]
     script[["refscan.py"]]
-    result["List of<br>violations"]
-    database --> script --> result
+    violations["List of<br>violations"]
+    database --> script
+    schema --> script
+    script --> violations
 ```
 
 ## Development status

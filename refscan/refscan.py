@@ -20,7 +20,6 @@ from rich.progress import (
 from pymongo import MongoClient, timeout
 from pymongo.database import Database
 from linkml_runtime import SchemaView
-from nmdc_schema.nmdc_data import get_nmdc_schema_definition
 
 app = typer.Typer(
     help="Scan the NMDC MongoDB database for referential integrity violations.",
@@ -259,6 +258,15 @@ def check_whether_document_having_id_exists_among_collections(
 
 @app.command("scan")
 def scan(
+        # Reference: https://typer.tiangolo.com/tutorial/parameter-types/path/
+        schema_file_path: Annotated[Path, typer.Option(
+            "--schema",
+            dir_okay=False,
+            writable=False,
+            readable=True,
+            resolve_path=True,
+            help="Filesystem path at which the YAML file representing the schema is located.",
+        )],
         database_name: Annotated[str, typer.Option(
             help="Name of the database.",
         )] = "nmdc",
@@ -277,7 +285,6 @@ def scan(
             help="Name of collection you do not want to search for referring documents. "
                  "Option can be used multiple times.",
         )] = None,
-        # Reference: https://typer.tiangolo.com/tutorial/parameter-types/path/
         reference_report_file_path: Annotated[Optional[Path], typer.Option(
             "--reference-report",
             dir_okay=False,
@@ -298,6 +305,11 @@ def scan(
     """
     Scans the NMDC MongoDB database for referential integrity violations.
     """
+    # Instantiate a `SchemaView` based upon the specified schema.
+    if verbose:
+        console.print(f"Schema YAML file: {schema_file_path}")
+    schema_view = SchemaView(schema_file_path)
+    console.print(f"Schema version: {schema_view.schema.version}")
 
     # Make a more self-documenting alias for the CLI option that can be specified multiple times.
     names_of_source_collections_to_skip: list[str] = [] if skip_source_collection is None else skip_source_collection
@@ -308,9 +320,6 @@ def scan(
     # Identify the collections in the database.
     # e.g. ["study_set", "foo_set", ...]
     mongo_collection_names = get_collection_names_from_database(mongo_client, database_name)
-
-    # Make a `SchemaView` that we can use to inspect the schema.
-    schema_view = SchemaView(get_nmdc_schema_definition())
 
     # Get a list of collection names (technically, `Database` slot names) from the schema.
     # e.g. ["study_set", "bar_set", ...]
