@@ -20,7 +20,8 @@ from refscan.lib.helpers import (
     get_collection_names_from_database,
     get_collection_names_from_schema,
     get_common_values,
-    check_whether_document_having_id_exists_among_collections
+    check_whether_document_having_id_exists_among_collections,
+    derive_schema_class_name_from_document,
 )
 from refscan.lib.Reference import Reference
 from refscan.lib.ReferenceList import ReferenceList
@@ -229,28 +230,6 @@ def scan(
             # Prepare the query we will use to fetch documents from this collection. The documents we will fetch are
             # those that have _any_ of the fields (of classes whose instances are allowed to reside in this collection)
             # that the schema allows to contain a reference to an instance.
-            #
-            # FIXME: A logical bug is present here. The `source_field_names` list contains all the fields that _any_
-            #        document in this collection could have, regardless of which class the document represents an
-            #        instance of. It is possible that different classes can use the same field name for fields that
-            #        have different characteristics.
-            #        |
-            #        For example: Suppose a `car_set` collection can contain documents representing instances of an
-            #        `EvCar` class _and_ documents representing instances of an `IceCar` class; and that the former
-            #        documents have a `motor` field that refers to a document in an `ev_motor_set` collection, while the
-            #        latter documents have a `motor` (same name) field that refers to a document in an `ice_motor_set`
-            #        collection. The `source_field_names` collection will contain the value `motor`; but, when we later
-            #        process the `motor` field of each document in the `car_set` collection, we will erroneously check
-            #        for the presence of its target in _both_ the `ev_motor_set` collection and the `ice_motor_set`
-            #        collection; even though we only want to know whether it's present in the `ev_motor_set` collection.
-            #        This can lead to "false successes" (e.g. if a document having the referenced `id` exists in the
-            #        `ice_motor_set` collection, but not in the `ev_motor_set` collection).
-            #        |
-            #        Next steps: In the case of the NMDC Schema, the contributors to schema version `v11.0.0` have tried
-            #        to make the `type` field of every document be a reliable indicator of that document's class. That
-            #        indicator could be used to determine how to interpret the fields of a given document—specifically,
-            #        which collection(s) to consider/ignore—when looking for referenced documents.
-            #
             source_field_names = references.get_source_field_names_of_source_collection(source_collection_name)
             or_terms = [{field_name: {'$exists': True}} for field_name in source_field_names]
             query_filter = {'$or': or_terms}
@@ -284,15 +263,20 @@ def scan(
                                 advance=1,
                                 num_violations=len(source_collections_and_their_violations[source_collection_name]))
 
-                # Check each field that — in documents in this collection — can contain a reference.
+                # Get the document's `id` so that we can include it in this script's output.
                 source_document_object_id = document["_id"]
                 source_document_id = document["id"] if "id" in document else None
+
+                # Check each field that — in documents in this collection — can contain a reference.
                 for field_name in source_field_names:
                     if field_name in document:
-                        # TODO: If using NMDC Schema `v11.0.0`, take advantage of the newly-reliable `type` field to
-                        #       get the target collection names for _that class's use_ of the source field name.
-                        target_collection_names = references.get_target_collection_names(source_collection_name,
-                                                                                         field_name)
+                        # Determine which collections can contain the referenced document, based upon
+                        # the schema class of which this source document is an instance.
+                        source_class_name = derive_schema_class_name_from_document(schema_view, document)
+                        target_collection_names = references.get_target_collection_names(
+                            source_class_name=source_class_name,
+                            source_field_name=field_name,
+                        )
 
                         # Handle both the multiple-value and the single-value case.
                         if type(document[field_name]) is list:

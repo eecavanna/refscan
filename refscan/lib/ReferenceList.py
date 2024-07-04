@@ -38,30 +38,19 @@ class ReferenceList(UserList):
 
     def get_target_collection_names(
             self,
-            source_collection_name: str,
+            source_class_name: str,
             source_field_name: str,
-            source_class_name: str | None = None,
     ) -> list[str]:
         """
-        Returns a list of the names of the collections in which the document referenced by the given field may exist.
+        Returns a list of the names of the collections in which a [target] document referenced by the specified field
+        of a [source] document representing an instance of the specified schema class, might exist.
         """
         distinct_target_collection_names = []
         references = self.data  # note: in a `UserList`, `self.data` refers to the underlying list data structure
         for reference in references:
 
-            # Check whether this reference's source class matches the one specified, if any was specified.
-            #
-            # TODO: I defaulted to `True` here so as to avoid affecting existing behavior (for better or for worse).
-            #       I may change that once any calling code gets updated to pass in the `source_class_name` value.
-            #
-            reference_class_matches_source_class = True
-            if source_class_name is not None:
-                reference_class_matches_source_class = reference.source_class_name == source_class_name
-
             # If this reference's source describes the specified source, record the reference's target collection name.
-            if reference.source_collection_name == source_collection_name and \
-                    reference.source_field_name == source_field_name and \
-                    reference_class_matches_source_class:
+            if reference.source_field_name == source_field_name and reference.source_class_name == source_class_name:
                 if reference.target_collection_name not in distinct_target_collection_names:  # avoids duplicates
                     distinct_target_collection_names.append(reference.target_collection_name)
 
