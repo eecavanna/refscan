@@ -26,3 +26,7 @@ graph LR
 ## Development status
 
 `refscan` is in early development and its author does not recommend anyone use it for anything.
+
+The main algorithm in `refscan/refscan.py` is overdue for cleanup and optimization. The original algorithm was based
+upon fewer assumptions about the schema and database than the current one (see "Assumptions" section above).
+Parts of the current algorithm may be unnecessarily convoluted as a result.
