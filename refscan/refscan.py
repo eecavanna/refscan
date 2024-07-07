@@ -236,8 +236,15 @@ def scan(
             if verbose:
                 console.print(f"{query_filter=}")
 
-            # Ensure the fields we fetch include "id" (so we can produce a more user-friendly report later).
-            query_projection = source_field_names + ["id"] if "id" not in source_field_names else source_field_names
+            # Ensure the fields we fetch include:
+            # - "id" (so we can produce a more user-friendly report later)
+            # - "type" (so we can map the document to a schema class)
+            additional_field_names_for_projection = []
+            if "id" not in source_field_names:
+                additional_field_names_for_projection.append("id")
+            if "type" not in source_field_names:
+                additional_field_names_for_projection.append("type")
+            query_projection = source_field_names + additional_field_names_for_projection
             if verbose:
                 console.print(f"{query_projection=}")
 
@@ -262,12 +269,14 @@ def scan(
                 source_document_object_id = document["_id"]
                 source_document_id = document["id"] if "id" in document else None
 
+                # Get the document's schema class name so that we can interpret its fields accordingly.
+                source_class_name = derive_schema_class_name_from_document(schema_view, document)
+
                 # Check each field that — in documents in this collection — can contain a reference.
                 for field_name in source_field_names:
                     if field_name in document:
                         # Determine which collections can contain the referenced document, based upon
                         # the schema class of which this source document is an instance.
-                        source_class_name = derive_schema_class_name_from_document(schema_view, document)
                         target_collection_names = references.get_target_collection_names(
                             source_class_name=source_class_name,
                             source_field_name=field_name,
