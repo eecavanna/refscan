@@ -258,11 +258,6 @@ def scan(
             # Process each relevant document.
             for document in collection.find(query_filter, projection=query_projection):
 
-                # Advance the progress bar to account for the current document.
-                progress.update(task_id,
-                                advance=1,
-                                num_violations=len(source_collections_and_their_violations[source_collection_name]))
-
                 # Get the document's `id` so that we can include it in this script's output.
                 source_document_object_id = document["_id"]
                 source_document_id = document["id"] if "id" in document else None
@@ -317,6 +312,11 @@ def scan(
                                     console.print(f"Failed to find document having `id` '{target_id}' "
                                                   f"among collections: {target_collection_names}. "
                                                   f"{violation=}")
+
+                # Advance the progress bar to account for the current document's contribution to the violations count.
+                progress.update(task_id,
+                                advance=1,
+                                num_violations=len(source_collections_and_their_violations[source_collection_name]))
 
             # Update the progress bar to indicate the current task is complete.
             progress.update(task_id, remaining_time_label="done")
