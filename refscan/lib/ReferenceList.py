@@ -1,4 +1,5 @@
-from typing import List, Dict
+from functools import cache
+from typing import List
 from pathlib import Path
 from dataclasses import fields, astuple
 from collections import UserList
@@ -16,12 +17,17 @@ class ReferenceList(UserList):
           One thing it does is enable sorting via `sorted(the_list)`.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __hash__(self):
+        r"""
+        Returns an integer that can be used to determine whether one instance is equal to another instance.
 
-        # Initialize a "cache" that will be useful to one of this instance's methods.
-        # Note: This dictionary is not automatically synced with the `self.data` list.
-        self.__reference_field_names_by_class: Dict[str, List[str]] = {}
+        Note: We define this method so that instances of this class are hashable, which allows us to use
+              the `@cache` decorator (from `functools`) on methods of this class.
+
+        Reference: https://docs.python.org/3.10/reference/datamodel.html#object.__hash__
+        """
+        data_as_tuple = tuple(self.data)
+        return hash(data_as_tuple)
 
     def get_source_collection_names(self) -> list[str]:
         """
@@ -95,21 +101,15 @@ class ReferenceList(UserList):
             for reference in self.data:
                 writer.writerow(astuple(reference))  # data row
 
+    @cache
     def get_reference_field_names_for_class(self, class_name: str) -> List[str]:
         r"""
         Returns a list of the names of this class's fields that can contain references.
         """
-        # First, check the cache.
-        if class_name in self.__reference_field_names_by_class:
-            return self.__reference_field_names_by_class[class_name]
-
         names_of_reference_fields: List[str] = []
         for reference in self.data:
             if reference.source_class_name == class_name:
                 if reference.source_field_name not in names_of_reference_fields:
                     names_of_reference_fields.append(reference.source_field_name)
-
-        # Cache this result for subsequent invocations.
-        self.__reference_field_names_by_class[class_name] = names_of_reference_fields
 
         return names_of_reference_fields
