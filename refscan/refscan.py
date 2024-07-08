@@ -1,13 +1,8 @@
 from pathlib import Path
 from typing import List, Optional
 from typing_extensions import Annotated
-from dataclasses import dataclass, field, fields, astuple
-from collections import UserList
-from itertools import groupby
-import csv
 
 import typer
-from rich.console import Console
 from rich.table import Table, Column
 from rich.progress import (
     BarColumn,
@@ -17,262 +12,27 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from pymongo import MongoClient, timeout
-from pymongo.database import Database
 from linkml_runtime import SchemaView
+
+from refscan.lib.constants import DATABASE_CLASS_NAME, console
+from refscan.lib.helpers import (
+    connect_to_database,
+    get_collection_names_from_database,
+    get_collection_names_from_schema,
+    get_common_values,
+    check_whether_document_having_id_exists_among_collections,
+    derive_schema_class_name_from_document,
+)
+from refscan.lib.Reference import Reference
+from refscan.lib.ReferenceList import ReferenceList
+from refscan.lib.Violation import Violation
+from refscan.lib.ViolationList import ViolationList
 
 app = typer.Typer(
     help="Scan the NMDC MongoDB database for referential integrity violations.",
     add_completion=False,  # hides the shell completion options from `--help` output
     rich_markup_mode="markdown",  # enables use of Markdown in docstrings and CLI help
 )
-
-# Instantiate a Rich console for fancy console output.
-# Reference: https://rich.readthedocs.io/en/stable/console.html
-console = Console()
-
-# Note: This is the only schema class name hard-coded into this script.
-DATABASE_CLASS_NAME = "Database"
-
-
-def connect_to_database(mongo_uri: str, database_name: str, verbose: bool = True) -> MongoClient:
-    """
-    Returns a Mongo client. Raises an exception if the database is not accessible.
-    """
-    mongo_client: MongoClient = MongoClient(host=mongo_uri, directConnection=True)
-
-    with (timeout(5)):  # if any message exchange takes > 5 seconds, this will raise an exception
-        (host, port_number) = mongo_client.address
-
-        if verbose:
-            console.print(f'Connected to MongoDB server: "{host}:{port_number}"')
-
-        # Check whether the database exists on the MongoDB server.
-        if database_name not in mongo_client.list_database_names():
-            raise ValueError(f'Database "{database_name}" not found on the MongoDB server.')
-
-    return mongo_client
-
-
-def get_collection_names_from_database(
-        mongo_client: MongoClient,
-        database_name: str,
-        verbose: bool = True
-) -> list[str]:
-    """
-    Returns the names of the collections that exist in the specified database.
-    """
-    db = mongo_client.get_database(database_name)
-    collection_names = db.list_collection_names()
-
-    if verbose:
-        console.print(f"Existing collections: {len(collection_names)}")
-
-    return collection_names
-
-
-def get_collection_names_from_schema(
-        schema_view: SchemaView,
-        verbose: bool = True
-) -> list[str]:
-    """
-    Returns the names of the slots of the `Database` class that correspond to database collections.
-
-    :param schema_view: A `SchemaView` instance
-    :param verbose: Whether to show verbose output
-    """
-    collection_names = []
-
-    for slot_name in schema_view.class_slots(DATABASE_CLASS_NAME):
-        slot_definition = schema_view.induced_slot(slot_name, DATABASE_CLASS_NAME)
-
-        # Filter out any hypothetical (future) slots that don't correspond to a collection (e.g. `db_version`).
-        if slot_definition.multivalued and slot_definition.inlined_as_list:
-            collection_names.append(slot_name)
-
-        # Filter out duplicate names. This is to work around the following issues in the schema:
-        # - https://github.com/microbiomedata/nmdc-schema/issues/1954
-        # - https://github.com/microbiomedata/nmdc-schema/issues/1955
-        collection_names = list(set(collection_names))
-
-    if verbose:
-        console.print(f"Collections described by schema: {len(collection_names)}")
-
-    return collection_names
-
-
-def get_common_values(list_a: list, list_b: list) -> list:
-    """
-    Returns only the items that are present in _both_ lists.
-
-    >>> get_common_values([1, 2, 3], [4, 5])  # zero
-    []
-    >>> get_common_values([1, 2, 3], [3, 4, 5])  # one
-    [3]
-    >>> get_common_values([1, 2, 3, 4], [3, 4])  # multiple
-    [3, 4]
-    >>> get_common_values([1, 2, 3], [1, 2, 3])  # all
-    [1, 2, 3]
-    """
-    return [a for a in list_a if a in list_b]
-
-
-@dataclass(frozen=True, order=True)
-class Violation:
-    """
-    A specific reference that lacks integrity.
-    """
-    source_collection_name: str = field()
-    source_field_name: str = field()
-    source_document_object_id: str = field()
-    source_document_id: str = field()
-    target_id: str = field()
-
-
-class ViolationList(UserList):
-    """
-    A list of violations.
-    """
-
-    def dump_to_tsv_file(self, file_path: str | Path) -> None:
-        """
-        Helper function that dumps the violations to a TSV file at the specified path.
-        """
-        column_names = [field_.name for field_ in fields(Violation)]
-        with open(file_path, "w", newline="") as tsv_file:
-            writer = csv.writer(tsv_file, delimiter="\t")
-            writer.writerow(column_names)  # header row
-            for violation in self.data:
-                writer.writerow(astuple(violation))  # data row
-
-
-@dataclass(frozen=True, order=True)
-class Reference:
-    """
-    A generic reference to a document in a collection.
-
-    Note: `frozen` means the instances are immutable.
-    Note: `order` means the instances have methods that help with sorting. For example, an `__eq__` method that
-          can be used to compare instances of the class as thought they were tuples of those instances' fields.
-    """
-    source_collection_name: str = field()  # e.g. "study_set"
-    source_class_name: str = field()  # e.g. "Study"
-    source_field_name: str = field()  # e.g. "part_of"
-    target_collection_name: str = field()  # e.g. "study_set" (reminder: a study can be part of another study)
-    target_class_name: str = field()  # e.g. "Study"
-
-
-class ReferenceList(UserList):
-    """
-    A list of references.
-
-    Note: `UserList` is a base class that facilitates the implementation of custom list classes.
-          One thing it does is enable sorting via `sorted(the_list)`.
-    """
-
-    def get_source_collection_names(self) -> list[str]:
-        """
-        Returns the distinct `source_collection_names` values among all references in the list.
-        """
-        distinct_source_collection_names = []
-        for reference in self.data:
-            if reference.source_collection_name not in distinct_source_collection_names:
-                distinct_source_collection_names.append(reference.source_collection_name)
-        return distinct_source_collection_names
-
-    def get_source_field_names_of_source_collection(self, collection_name: str) -> list[str]:
-        """
-        Returns the distinct source field names of the specified source collection.
-        """
-        distinct_source_field_names = []
-        for reference in self.data:
-            if reference.source_collection_name == collection_name:
-                if reference.source_field_name not in distinct_source_field_names:
-                    distinct_source_field_names.append(reference.source_field_name)
-        return distinct_source_field_names
-
-    def get_target_collection_names(
-            self,
-            source_collection_name: str,
-            source_field_name: str,
-            source_class_name: str | None = None,
-    ) -> list[str]:
-        """
-        Returns a list of the names of the collections in which the document referenced by the given field may exist.
-        """
-        distinct_target_collection_names = []
-        references = self.data  # note: in a `UserList`, `self.data` refers to the underlying list data structure
-        for reference in references:
-
-            # Check whether this reference's source class matches the one specified, if any was specified.
-            #
-            # TODO: I defaulted to `True` here so as to avoid affecting existing behavior (for better or for worse).
-            #       I may change that once any calling code gets updated to pass in the `source_class_name` value.
-            #
-            reference_class_matches_source_class = True
-            if source_class_name is not None:
-                reference_class_matches_source_class = reference.source_class_name == source_class_name
-
-            # If this reference's source describes the specified source, record the reference's target collection name.
-            if reference.source_collection_name == source_collection_name and \
-                    reference.source_field_name == source_field_name and \
-                    reference_class_matches_source_class:
-                if reference.target_collection_name not in distinct_target_collection_names:  # avoids duplicates
-                    distinct_target_collection_names.append(reference.target_collection_name)
-
-        return distinct_target_collection_names
-
-    def get_groups(self, field_names: list[str]) -> list[tuple[str, str, str, str, list[str]]]:
-        r"""
-        Returns an iterable of groups, where each group has a distinct combination of values in the specified fields.
-
-        Note: This method can be used to "consolidate" references that have the same source collection name,
-              source field name, and target collection name (i.e. ones that only differ by target class name).
-        """
-
-        def make_group_key(reference: Reference) -> tuple:
-            """Helper function that returns a key that can be used to group references."""
-            values = []
-            for field_name in field_names:
-                if not hasattr(reference, field_name):
-                    raise ValueError(f"No such field: {field_name}")
-                values.append(getattr(reference, field_name))
-            return tuple(values)
-
-        groups = groupby(sorted(self.data), key=make_group_key)
-        return groups
-
-    def dump_to_tsv_file(self, file_path: str | Path) -> None:
-        r"""
-        Helper function that dumps the references to a TSV file at the specified path.
-        """
-        column_names = [field_.name for field_ in fields(Reference)]
-        with open(file_path, "w", newline="") as tsv_file:
-            writer = csv.writer(tsv_file, delimiter="\t")
-            writer.writerow(column_names)  # header row
-            for reference in self.data:
-                writer.writerow(astuple(reference))  # data row
-
-
-def check_whether_document_having_id_exists_among_collections(
-        db: Database,
-        collection_names: list[str],
-        document_id: str
-) -> bool:
-    """
-    Checks whether any documents having the specified `id` value (in its `id` field) exists
-    in any of the specified collections.
-
-    References:
-    - https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find_one
-    """
-    document_exists = False
-    query_filter = {"id": document_id}
-    for collection_name in collection_names:
-        document_exists = db.get_collection(collection_name).find_one(query_filter, projection=["_id"]) is not None
-        if document_exists:  # if we found the document in this collection, there is no need to keep searching
-            break
-    return document_exists
 
 
 @app.command("scan")
@@ -470,36 +230,21 @@ def scan(
             # Prepare the query we will use to fetch documents from this collection. The documents we will fetch are
             # those that have _any_ of the fields (of classes whose instances are allowed to reside in this collection)
             # that the schema allows to contain a reference to an instance.
-            #
-            # FIXME: A logical bug is present here. The `source_field_names` list contains all the fields that _any_
-            #        document in this collection could have, regardless of which class the document represents an
-            #        instance of. It is possible that different classes can use the same field name for fields that
-            #        have different characteristics.
-            #        |
-            #        For example: Suppose a `car_set` collection can contain documents representing instances of an
-            #        `EvCar` class _and_ documents representing instances of an `IceCar` class; and that the former
-            #        documents have a `motor` field that refers to a document in an `ev_motor_set` collection, while the
-            #        latter documents have a `motor` (same name) field that refers to a document in an `ice_motor_set`
-            #        collection. The `source_field_names` collection will contain the value `motor`; but, when we later
-            #        process the `motor` field of each document in the `car_set` collection, we will erroneously check
-            #        for the presence of its target in _both_ the `ev_motor_set` collection and the `ice_motor_set`
-            #        collection; even though we only want to know whether it's present in the `ev_motor_set` collection.
-            #        This can lead to "false successes" (e.g. if a document having the referenced `id` exists in the
-            #        `ice_motor_set` collection, but not in the `ev_motor_set` collection).
-            #        |
-            #        Next steps: In the case of the NMDC Schema, the contributors to schema version `v11.0.0` have tried
-            #        to make the `type` field of every document be a reliable indicator of that document's class. That
-            #        indicator could be used to determine how to interpret the fields of a given document—specifically,
-            #        which collection(s) to consider/ignore—when looking for referenced documents.
-            #
             source_field_names = references.get_source_field_names_of_source_collection(source_collection_name)
             or_terms = [{field_name: {'$exists': True}} for field_name in source_field_names]
             query_filter = {'$or': or_terms}
             if verbose:
                 console.print(f"{query_filter=}")
 
-            # Ensure the fields we fetch include "id" (so we can produce a more user-friendly report later).
-            query_projection = source_field_names + ["id"] if "id" not in source_field_names else source_field_names
+            # Ensure the fields we fetch include:
+            # - "id" (so we can produce a more user-friendly report later)
+            # - "type" (so we can map the document to a schema class)
+            additional_field_names_for_projection = []
+            if "id" not in source_field_names:
+                additional_field_names_for_projection.append("id")
+            if "type" not in source_field_names:
+                additional_field_names_for_projection.append("type")
+            query_projection = source_field_names + additional_field_names_for_projection
             if verbose:
                 console.print(f"{query_projection=}")
 
@@ -520,20 +265,25 @@ def scan(
             # Process each relevant document.
             for document in collection.find(query_filter, projection=query_projection):
 
-                # Advance the progress bar to account for the current document.
-                progress.update(task_id,
-                                advance=1,
-                                num_violations=len(source_collections_and_their_violations[source_collection_name]))
-
-                # Check each field that — in documents in this collection — can contain a reference.
+                # Get the document's `id` so that we can include it in this script's output.
                 source_document_object_id = document["_id"]
                 source_document_id = document["id"] if "id" in document else None
-                for field_name in source_field_names:
+
+                # Get the document's schema class name so that we can interpret its fields accordingly.
+                source_class_name = derive_schema_class_name_from_document(schema_view, document)
+
+                # Get the names of that class's fields that can contain references.
+                names_of_reference_fields = references.get_reference_field_names_for_class(source_class_name)
+
+                # Check each field that both (a) exists in the document and (b) can contain a reference.
+                for field_name in names_of_reference_fields:
                     if field_name in document:
-                        # TODO: If using NMDC Schema `v11.0.0`, take advantage of the newly-reliable `type` field to
-                        #       get the target collection names for _that class's use_ of the source field name.
-                        target_collection_names = references.get_target_collection_names(source_collection_name,
-                                                                                         field_name)
+                        # Determine which collections can contain the referenced document, based upon
+                        # the schema class of which this source document is an instance.
+                        target_collection_names = references.get_target_collection_names(
+                            source_class_name=source_class_name,
+                            source_field_name=field_name,
+                        )
 
                         # Handle both the multiple-value and the single-value case.
                         if type(document[field_name]) is list:
@@ -574,6 +324,11 @@ def scan(
                                     console.print(f"Failed to find document having `id` '{target_id}' "
                                                   f"among collections: {target_collection_names}. "
                                                   f"{violation=}")
+
+                # Advance the progress bar to account for the current document's contribution to the violations count.
+                progress.update(task_id,
+                                advance=1,
+                                num_violations=len(source_collections_and_their_violations[source_collection_name]))
 
             # Update the progress bar to indicate the current task is complete.
             progress.update(task_id, remaining_time_label="done")
