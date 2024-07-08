@@ -272,8 +272,11 @@ def scan(
                 # Get the document's schema class name so that we can interpret its fields accordingly.
                 source_class_name = derive_schema_class_name_from_document(schema_view, document)
 
-                # Check each field that — in documents in this collection — can contain a reference.
-                for field_name in source_field_names:
+                # Get the names of that class's fields that can contain references.
+                names_of_reference_fields = references.get_reference_field_names_for_class(source_class_name)
+
+                # Check each field that both (a) exists in the document and (b) can contain a reference.
+                for field_name in names_of_reference_fields:
                     if field_name in document:
                         # Determine which collections can contain the referenced document, based upon
                         # the schema class of which this source document is an instance.
