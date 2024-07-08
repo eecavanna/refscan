@@ -24,11 +24,15 @@ class ReferenceList(UserList):
         Note: We define this method so that instances of this class are hashable, which allows us to use
               the `@cache` decorator (from `functools`) on methods of this class.
 
+        TODO: Do benchmarking to check whether hashing via `tuple(self.data)` is faster or slower than manually
+              hashing each string in each row of `self.data` and hashing the combination of those hashes.
+
         Reference: https://docs.python.org/3.10/reference/datamodel.html#object.__hash__
         """
         data_as_tuple = tuple(self.data)
         return hash(data_as_tuple)
 
+    @cache
     def get_source_collection_names(self) -> list[str]:
         """
         Returns the distinct `source_collection_names` values among all references in the list.
@@ -39,6 +43,7 @@ class ReferenceList(UserList):
                 distinct_source_collection_names.append(reference.source_collection_name)
         return distinct_source_collection_names
 
+    @cache
     def get_source_field_names_of_source_collection(self, collection_name: str) -> list[str]:
         """
         Returns the distinct source field names of the specified source collection.
@@ -50,6 +55,7 @@ class ReferenceList(UserList):
                     distinct_source_field_names.append(reference.source_field_name)
         return distinct_source_field_names
 
+    @cache
     def get_target_collection_names(
             self,
             source_class_name: str,
