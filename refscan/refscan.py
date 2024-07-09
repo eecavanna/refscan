@@ -17,9 +17,7 @@ from linkml_runtime import SchemaView
 from refscan.lib.constants import DATABASE_CLASS_NAME, console
 from refscan.lib.helpers import (
     connect_to_database,
-    get_collection_names_from_database,
     get_collection_names_from_schema,
-    get_common_values,
     check_whether_document_having_id_exists_among_collections,
     derive_schema_class_name_from_document,
 )
@@ -93,21 +91,10 @@ def scan(
     # Make a more self-documenting alias for the CLI option that can be specified multiple times.
     names_of_source_collections_to_skip: list[str] = [] if skip_source_collection is None else skip_source_collection
 
-    # Connect to the MongoDB server and verify the database is accessible.
-    mongo_client = connect_to_database(mongo_uri, database_name)
-
-    # Identify the collections in the database.
-    # e.g. ["study_set", "foo_set", ...]
-    mongo_collection_names = get_collection_names_from_database(mongo_client, database_name)
-
     # Get a list of collection names (technically, `Database` slot names) from the schema.
-    # e.g. ["study_set", "bar_set", ...]
-    schema_database_slot_names = get_collection_names_from_schema(schema_view)
-
-    # Get the intersection of the two.
     # e.g. ["study_set", ...]
-    collection_names: list[str] = get_common_values(mongo_collection_names, schema_database_slot_names)
-    console.print(f"Existing collections described by schema: {len(collection_names)}")
+    collection_names = get_collection_names_from_schema(schema_view)
+    console.print(f"Collections described by schema: {len(collection_names)}")
 
     # For each collection, determine the names of the classes whose instances can be stored in that collection.
     collection_name_to_class_names = {}  # example: { "study_set": ["Study"] }
@@ -210,15 +197,26 @@ def scan(
         refresh_per_second=1,
     )
 
+    # Connect to the MongoDB server and verify the database is accessible.
+    mongo_client = connect_to_database(mongo_uri, database_name)
+
     db = mongo_client.get_database(database_name)
     source_collections_and_their_violations: dict[str, ViolationList] = {}
     with custom_progress as progress:
+
+        # Filter out the collections that the schema says can contain references, but that don't exist in the database.
+        source_collection_names_in_db = []
+        for collection_name in references.get_source_collection_names():
+            if db.get_collection(collection_name) is None:
+                console.print(f"🤷  [orange]Database lacks collection:[/orange] {collection_name}")
+            else:
+                source_collection_names_in_db.append(collection_name)
 
         # Process each collection, checking for referential integrity violations;
         # using the reference catalog created earlier to know which collections can
         # contain "referrers" (documents), which of their slots can contain references (fields),
         # and which collections can contain the referred-to "referees" (documents).
-        for source_collection_name in references.get_source_collection_names():
+        for source_collection_name in source_collection_names_in_db:
 
             # If this source collection is one of the ones the user wanted to skip, skip it now.
             if source_collection_name in names_of_source_collections_to_skip:
