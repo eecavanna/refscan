@@ -27,7 +27,7 @@ from refscan.lib.Violation import Violation
 from refscan.lib.ViolationList import ViolationList
 
 app = typer.Typer(
-    help="Scan the NMDC MongoDB database for referential integrity violations.",
+    help="Scans the NMDC MongoDB database for referential integrity violations.",
     add_completion=False,  # hides the shell completion options from `--help` output
     rich_markup_mode="markdown",  # enables use of Markdown in docstrings and CLI help
 )
