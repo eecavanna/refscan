@@ -91,7 +91,7 @@ def scan(
 
     # For each collection, determine the names of the classes whose instances can be stored in that collection.
     collection_name_to_class_names = {}  # example: { "study_set": ["Study"] }
-    for collection_name in collection_names:
+    for collection_name in sorted(collection_names):
         slot_definition = schema_view.induced_slot(collection_name, DATABASE_CLASS_NAME)
         name_of_eligible_class = slot_definition.range
         names_of_eligible_classes = schema_view.class_descendants(name_of_eligible_class)  # includes own class name
@@ -177,7 +177,7 @@ def scan(
         # using the reference catalog created earlier to know which collections can
         # contain "referrers" (documents), which of their slots can contain references (fields),
         # and which collections can contain the referred-to "referees" (documents).
-        for source_collection_name in source_collection_names_in_db:
+        for source_collection_name in sorted(source_collection_names_in_db):
 
             # If this source collection is one of the ones the user wanted to skip, skip it now.
             if source_collection_name in names_of_source_collections_to_skip:
@@ -281,21 +281,16 @@ def scan(
     # Close the connection to the MongoDB server.
     mongo_client.close()
 
-    # Print a summary of the violations.
-    total_num_violations = 0
-    for collection_name, violations in source_collections_and_their_violations.items():
+    # Create a violation report in TSV format — for all collections combined.
+    all_violations = ViolationList()
+    for collection_name, violations in sorted(source_collections_and_their_violations.items(), key=get_lowercase_key):
         console.print(f"Number of violations in {collection_name}: {len(violations)}")
+        all_violations.extend(violations)
         if verbose:
             console.print(violations)
-        total_num_violations += len(violations)
-    console.print(f"Total violations: {total_num_violations}")
 
-    # Create a violation report in TSV format — for all collections combined.
-    # Note: We can still identify a violation's source collection by checking its `source_collection_name` attribute.
+    console.print(f"Total violations: {len(all_violations)}")
     console.print(f"Writing violation report: {violation_report_file_path}")
-    all_violations = ViolationList()
-    for violations in source_collections_and_their_violations.values():
-        all_violations.extend(violations)
     all_violations.dump_to_tsv_file(file_path=violation_report_file_path)
 
 
