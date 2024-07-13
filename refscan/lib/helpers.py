@@ -2,7 +2,6 @@ from typing import Optional
 from functools import cache
 
 from pymongo import MongoClient, timeout
-from pymongo.database import Database
 from linkml_runtime import SchemaView
 from rich.progress import (
     Progress,
@@ -58,31 +57,6 @@ def get_collection_names_from_schema(
         collection_names = list(set(collection_names))
 
     return collection_names
-
-
-def check_whether_document_having_id_exists_among_collections(
-        db: Database,
-        collection_names: list[str],
-        document_id: str
-) -> bool:
-    """
-    Checks whether any documents having the specified `id` value (in its `id` field) exists
-    in any of the specified collections.
-
-    References:
-    - https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find_one
-
-    TODO: Execution spends a lot of time in this function. Consider cacheing the name of the collection in which a
-          document was most recently found and — if that's among the collection names passed in next time, start
-          with that collection. Alternatively, inspect the document ID and infer a likely collection from that.
-    """
-    document_exists = False
-    query_filter = {"id": document_id}
-    for collection_name in collection_names:
-        document_exists = db.get_collection(collection_name).find_one(query_filter, projection=["_id"]) is not None
-        if document_exists:  # if we found the document in this collection, there is no need to keep searching
-            break
-    return document_exists
 
 
 @cache  # memoizes the decorated function

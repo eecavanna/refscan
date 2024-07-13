@@ -5,11 +5,11 @@ from typing_extensions import Annotated
 import typer
 from linkml_runtime import SchemaView
 
+from refscan.lib.Finder import Finder
 from refscan.lib.constants import DATABASE_CLASS_NAME, console
 from refscan.lib.helpers import (
     connect_to_database,
     get_collection_names_from_schema,
-    check_whether_document_having_id_exists_among_collections,
     derive_schema_class_name_from_document,
     init_progress_bar,
     get_lowercase_key,
@@ -165,6 +165,11 @@ def scan(
     mongo_client = connect_to_database(mongo_uri, database_name)
 
     db = mongo_client.get_database(database_name)
+
+    # Make a finder bound to this database.
+    # Note: A finder is a wrapper around a database that adds some caching that speeds up searches in some situations.
+    finder = Finder(database=db)
+
     source_collections_and_their_violations: dict[str, ViolationList] = {}
     with custom_progress as progress:
 
@@ -256,8 +261,7 @@ def scan(
                             target_ids = [target_id]  # makes a one-item list
 
                         for target_id in target_ids:
-                            target_exists = check_whether_document_having_id_exists_among_collections(
-                                db=db,
+                            target_exists = finder.check_whether_document_having_id_exists_among_collections(
                                 collection_names=target_collection_names,
                                 document_id=target_id
                             )
