@@ -1,12 +1,17 @@
+# OS files.
+.DS_Store
+
 # JetBrains IDE files.
 /.idea
 
-# Performance profiling data.
+# Python files.
+__pycache__
+
+# Performance profiling files.
 /*.prof
 
-# Schema files (with an example name).
-/schema.yaml
+# Schema files.
+/*.yaml
 
-# Output files (with their default names).
-/references.tsv
-/violations.tsv
+# Output files.
+/*.tsv
