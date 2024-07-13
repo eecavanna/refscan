@@ -3,7 +3,7 @@ from typing import List, Optional
 from typing_extensions import Annotated
 
 import typer
-from linkml_runtime import SchemaView
+import linkml_runtime
 
 from refscan.lib.Finder import Finder
 from refscan.lib.constants import DATABASE_CLASS_NAME, console
@@ -75,11 +75,14 @@ def scan(
     """
     Scans the NMDC MongoDB database for referential integrity violations.
     """
-    # Instantiate a `SchemaView` based upon the specified schema.
+    # Instantiate a `linkml_runtime.SchemaView` bound to the specified schema.
     if verbose:
         console.print(f"Schema YAML file: {schema_file_path}")
-    schema_view = SchemaView(schema_file_path)
-    console.print(f"Schema version: {schema_view.schema.version}")
+    schema_view = linkml_runtime.SchemaView(schema_file_path)
+
+    # Show high-level information about the schema and LinkML runtime.
+    console.print(f"Schema version:         {schema_view.schema.version}")
+    console.print(f"LinkML runtime version: {linkml_runtime.__version__}")
 
     # Make a more self-documenting alias for the CLI option that can be specified multiple times.
     names_of_source_collections_to_skip: list[str] = [] if skip_source_collection is None else skip_source_collection
