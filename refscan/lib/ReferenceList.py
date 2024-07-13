@@ -47,16 +47,17 @@ class ReferenceList(UserList):
         """
         Returns a list of the names of the collections in which a [target] document referenced by the specified field
         of a [source] document representing an instance of the specified schema class, might exist.
+
+        TODO: Execution spends a lot of time in this function. Consider replacing it with something faster (e.g. a LUT).
         """
-        distinct_target_collection_names = []
-        references = self.data  # note: in a `UserList`, `self.data` refers to the underlying list data structure
-        for reference in references:
+        target_collection_names = []
+        for reference in self.data:  # note: in a `UserList`, `self.data` refers to the underlying list data structure
 
             # If this reference's source describes the specified source, record the reference's target collection name.
-            if reference.source_field_name == source_field_name and reference.source_class_name == source_class_name:
-                if reference.target_collection_name not in distinct_target_collection_names:  # avoids duplicates
-                    distinct_target_collection_names.append(reference.target_collection_name)
+            if reference.source_class_name == source_class_name and reference.source_field_name == source_field_name:
+                target_collection_names.append(reference.target_collection_name)
 
+        distinct_target_collection_names = list(set(target_collection_names))
         return distinct_target_collection_names
 
     def get_groups(self, field_names: list[str]) -> list[tuple[str, str, str, str, list[str]]]:

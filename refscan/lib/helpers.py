@@ -71,6 +71,10 @@ def check_whether_document_having_id_exists_among_collections(
 
     References:
     - https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.find_one
+
+    TODO: Execution spends a lot of time in this function. Consider cacheing the name of the collection in which a
+          document was most recently found and — if that's among the collection names passed in next time, start
+          with that collection. Alternatively, inspect the document ID and infer a likely collection from that.
     """
     document_exists = False
     query_filter = {"id": document_id}
