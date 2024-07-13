@@ -243,29 +243,15 @@ def scan(
                             source_field_name=field_name,
                         )
 
-                        # Handle both the multiple-value and the single-value case.
+                        # Handle both the multi-value (array) and the single-value (scalar) case,
+                        # normalizing the value or values into a list of values in either case.
                         if type(document[field_name]) is list:
                             target_ids = document[field_name]
-                            for target_id in target_ids:
-                                target_exists = check_whether_document_having_id_exists_among_collections(
-                                    db,
-                                    target_collection_names,
-                                    target_id
-                                )
-                                if not target_exists:
-                                    violation = Violation(source_collection_name=source_collection_name,
-                                                          source_field_name=field_name,
-                                                          source_document_object_id=source_document_object_id,
-                                                          source_document_id=source_document_id,
-                                                          target_id=target_id)
-                                    source_collections_and_their_violations[source_collection_name].append(violation)
-                                    if verbose:
-                                        console.print(f"Failed to find document having `id` '{target_id}' "
-                                                      f"among collections: {target_collection_names}. "
-                                                      f"{violation=}")
-
                         else:
                             target_id = document[field_name]
+                            target_ids = [target_id]  # makes a one-item list
+
+                        for target_id in target_ids:
                             target_exists = check_whether_document_having_id_exists_among_collections(
                                 db,
                                 target_collection_names,
