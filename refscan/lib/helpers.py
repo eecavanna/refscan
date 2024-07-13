@@ -138,3 +138,8 @@ def init_progress_bar() -> Progress:
     )
 
     return custom_progress
+
+
+def get_lowercase_key(key_value_pair: tuple) -> str:
+    r"""Returns the key from a `(key, value)` tuple, in lowercase."""
+    return key_value_pair[0].lower()

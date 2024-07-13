@@ -12,6 +12,7 @@ from refscan.lib.helpers import (
     check_whether_document_having_id_exists_among_collections,
     derive_schema_class_name_from_document,
     init_progress_bar,
+    get_lowercase_key,
 )
 from refscan.lib.Reference import Reference
 from refscan.lib.ReferenceList import ReferenceList
@@ -100,11 +101,11 @@ def scan(
     references = ReferenceList()
 
     # For each class whose instances can be stored in each collection, determine which of its slots can be a reference.
-    sorted_collection_names_to_class_names = sorted(collection_name_to_class_names.items(),
-                                                    key=lambda kv: kv[0])  # sort by key
+    sorted_collection_names_to_class_names = sorted(collection_name_to_class_names.items(), key=get_lowercase_key)
     for collection_name, class_names in sorted_collection_names_to_class_names:
         for class_name in class_names:
             for slot_name in schema_view.class_slots(class_name):
+
                 # Get the slot definition in the context of its use on this particular class.
                 slot_definition = schema_view.induced_slot(slot_name=slot_name, class_name=class_name)
 
