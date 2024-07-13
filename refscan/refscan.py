@@ -3,14 +3,6 @@ from typing import List, Optional
 from typing_extensions import Annotated
 
 import typer
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 from linkml_runtime import SchemaView
 
 from refscan.lib.constants import DATABASE_CLASS_NAME, console
@@ -19,6 +11,7 @@ from refscan.lib.helpers import (
     get_collection_names_from_schema,
     check_whether_document_having_id_exists_among_collections,
     derive_schema_class_name_from_document,
+    init_progress_bar,
 )
 from refscan.lib.Reference import Reference
 from refscan.lib.ReferenceList import ReferenceList
@@ -161,22 +154,8 @@ def scan(
     if verbose:
         console.print(references.as_table())
 
-    # Define a progress bar that includes the elapsed time and M-of-N completed count.
-    # Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
-    custom_progress = Progress(
-        TextColumn("[progress.description]{task.description}"),
-        TextColumn("[red]{task.fields[num_violations]}[/red] violations"),
-        MofNCompleteColumn(),
-        TextColumn("documents scanned"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(),
-        TimeElapsedColumn(),
-        TextColumn("elapsed"),
-        TimeRemainingColumn(elapsed_when_finished=True),
-        TextColumn("{task.fields[remaining_time_label]}"),
-        console=console,
-        refresh_per_second=1,
-    )
+    # Initialize a progress bar.
+    custom_progress = init_progress_bar()
 
     # Connect to the MongoDB server and verify the database is accessible.
     mongo_client = connect_to_database(mongo_uri, database_name)

@@ -4,6 +4,14 @@ from functools import cache
 from pymongo import MongoClient, timeout
 from pymongo.database import Database
 from linkml_runtime import SchemaView
+from rich.progress import (
+    Progress,
+    TextColumn,
+    MofNCompleteColumn,
+    BarColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn
+)
 
 from refscan.lib.constants import DATABASE_CLASS_NAME, console
 
@@ -106,3 +114,27 @@ def derive_schema_class_name_from_document(schema_view: SchemaView, document: di
         class_uri = document["type"]
         schema_class_name = translate_class_uri_into_schema_class_name(schema_view, class_uri)
     return schema_class_name
+
+
+def init_progress_bar() -> Progress:
+    r"""
+    Initialize a progress bar that shows the elapsed time, M-of-N completed count, and more.
+
+    Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
+    """
+    custom_progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[red]{task.fields[num_violations]}[/red] violations"),
+        MofNCompleteColumn(),
+        TextColumn("documents scanned"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(),
+        TimeElapsedColumn(),
+        TextColumn("elapsed"),
+        TimeRemainingColumn(elapsed_when_finished=True),
+        TextColumn("{task.fields[remaining_time_label]}"),
+        console=console,
+        refresh_per_second=1,
+    )
+
+    return custom_progress
