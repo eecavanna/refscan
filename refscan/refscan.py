@@ -155,6 +155,9 @@ def scan(
     if verbose:
         console.print(references.as_table())
 
+    # Get a dictionary that maps source class names to the names of their fields that can contain references.
+    reference_field_names_by_source_class_name = references.get_reference_field_names_by_source_class_name()
+
     # Initialize a progress bar.
     custom_progress = init_progress_bar()
 
@@ -232,7 +235,7 @@ def scan(
                 source_class_name = derive_schema_class_name_from_document(schema_view, document)
 
                 # Get the names of that class's fields that can contain references.
-                names_of_reference_fields = references.get_reference_field_names_for_class(source_class_name)
+                names_of_reference_fields = reference_field_names_by_source_class_name.get(source_class_name, [])
 
                 # Check each field that both (a) exists in the document and (b) can contain a reference.
                 for field_name in names_of_reference_fields:
