@@ -254,9 +254,9 @@ def scan(
 
                         for target_id in target_ids:
                             target_exists = check_whether_document_having_id_exists_among_collections(
-                                db,
-                                target_collection_names,
-                                target_id
+                                db=db,
+                                collection_names=target_collection_names,
+                                document_id=target_id
                             )
                             if not target_exists:
                                 violation = Violation(source_collection_name=source_collection_name,
