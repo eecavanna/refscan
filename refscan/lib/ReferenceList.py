@@ -6,6 +6,8 @@ from collections import UserList
 from itertools import groupby
 import csv
 
+from rich.table import Table, Column
+
 from refscan.lib.Reference import Reference
 
 
@@ -119,3 +121,35 @@ class ReferenceList(UserList):
                     names_of_reference_fields.append(reference.source_field_name)
 
         return names_of_reference_fields
+
+    def as_table(self) -> Table:
+        r"""
+        Returns the references as a `rich.Table` instance.
+        """
+
+        # Make the data rows for the table. Data rows that would have had the same
+        # (combination of) the following fields, get consolidated into a single row;
+        # and all the target class names are displayed as a list on that row.
+        fields_to_group_rows_by = ["source_collection_name",
+                                   "source_class_name",
+                                   "source_field_name",
+                                   "target_collection_name"]
+        groups = self.get_groups(fields_to_group_rows_by)
+        data_rows: list[tuple[str, str, str, str, str]] = []
+        for key, group in groups:
+            target_class_names = list(set([ref.target_class_name for ref in group]))  # omit duplicate class names
+            row = (key[0], key[1], key[2], key[3], ", ".join(target_class_names))
+            data_rows.append(row)
+
+        # Initialize the table, then add the data rows to it.
+        table = Table(Column(header="Source collection", footer=f"{len(data_rows)} rows"),
+                      Column(header="Source class"),
+                      Column(header="Source field"),
+                      Column(header="Target collection"),
+                      Column(header="Target class(es)"),
+                      title="References",
+                      show_footer=True)
+        for row in data_rows:
+            table.add_row(*row)
+
+        return table

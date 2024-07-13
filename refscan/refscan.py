@@ -3,7 +3,6 @@ from typing import List, Optional
 from typing_extensions import Annotated
 
 import typer
-from rich.table import Table, Column
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -159,26 +158,8 @@ def scan(
     references.dump_to_tsv_file(file_path=reference_report_file_path)
 
     # Display a table of references.
-    groups = references.get_groups(["source_collection_name",
-                                    "source_class_name",
-                                    "source_field_name",
-                                    "target_collection_name"])
-    rows: list[tuple[str, str, str, str, str]] = []
-    for key, group in groups:
-        target_class_names = list(set([ref.target_class_name for ref in group]))  # omit duplicate class names
-        row = (key[0], key[1], key[2], key[3], ", ".join(target_class_names))
-        rows.append(row)
-    table = Table(Column(header="Source collection", footer=f"{len(rows)} rows"),
-                  Column(header="Source class"),
-                  Column(header="Source field"),
-                  Column(header="Target collection"),
-                  Column(header="Target class(es)"),
-                  title="References",
-                  show_footer=True)
-    for row in rows:
-        table.add_row(*row)
     if verbose:
-        console.print(table)
+        console.print(references.as_table())
 
     # Define a progress bar that includes the elapsed time and M-of-N completed count.
     # Reference: https://rich.readthedocs.io/en/stable/progress.html?highlight=progress#columns
