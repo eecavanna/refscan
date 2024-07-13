@@ -102,9 +102,9 @@ def init_progress_bar() -> Progress:
     """
     custom_progress = Progress(
         TextColumn("[progress.description]{task.description}"),
-        TextColumn("[red]{task.fields[num_violations]}[/red] violations"),
+        TextColumn("[red]{task.fields[num_violations]}[/red] violations in"),
         MofNCompleteColumn(),
-        TextColumn("documents scanned"),
+        TextColumn("source documents"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         BarColumn(),
         TimeElapsedColumn(),
