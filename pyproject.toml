@@ -28,6 +28,10 @@ typer = "^0.12.3"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.4.2"
+# We use `pyinstrument` for performance profiling.
+# Usage: $ pyinstrument --from-path refscan --help
+# Docs: https://pyinstrument.readthedocs.io/en/latest/guide.html#profile-a-python-cli-command
+pyinstrument = "^4.6.2"
 
 [tool.poetry.scripts]
 # Reference: https://python-poetry.org/docs/pyproject#scripts
